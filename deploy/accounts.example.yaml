@@ -1,0 +1,23 @@
+# Cloud account credentials template (design doc section 3).
+# Real file is mounted from a K8s Secret at /etc/cloudsync/accounts.yaml.
+# NEVER commit real values; this template contains placeholders only.
+#
+# Rules:
+# - account_id MUST equal cmdb_sync_tasks.target_id for the task to run;
+# - account present here but no task row  -> not synced (business table wins);
+# - task row present but no credential    -> task ERRORs, others unaffected;
+# - regions empty means SDK default / all regions.
+
+providers:
+  aliyun:
+    - account_id: "1234567890"          # must equal cmdb_sync_tasks.target_id
+      display_name: 生产主账号
+      access_key_id: "LTAI***"
+      access_key_secret: "***"
+      regions: [cn-beijing, cn-shanghai]  # fetch scope; empty = SDK default/all
+  gcp:
+    - account_id: "my-gcp-project"
+      display_name: GCP 主项目
+      service_account_json: |
+        { ... }
+      regions: [asia-east2]
