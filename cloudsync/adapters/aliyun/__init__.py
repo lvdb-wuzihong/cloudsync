@@ -1,16 +1,20 @@
-"""Aliyun adapter package (one module per resource type, to be filled in P1/P2)."""
+"""Aliyun adapter package (one module per resource type, dispatched below)."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from cloudsync.adapters.aliyun.ecs import list_ecs
+from cloudsync.adapters.aliyun.vpc import list_vpc
 from cloudsync.adapters.base import register_adapter
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Callable
 
     from cloudsync.core.accounts import AccountConfig
     from cloudsync.schemas.normalized import NormalizedResource
+
+type Fetcher = Callable[[AccountConfig], AsyncIterator[NormalizedResource]]
 
 PROVIDER = "aliyun"
 
@@ -37,8 +41,15 @@ DEFAULT_RESOURCE_TYPES = [
 ]
 
 
+# resource_type (model code) -> fetcher coroutine; grows per phase
+_FETCHERS: dict[str, Fetcher] = {
+    "aliyun_ecs": list_ecs,
+    "aliyun_vpc": list_vpc,
+}
+
+
 class AliyunAdapter:
-    """Placeholder adapter; real SDK fetching lands in P1/P2 per resource module."""
+    """Dispatches per resource type; unfetched types raise NotImplementedError."""
 
     provider: str = PROVIDER
 
@@ -49,11 +60,14 @@ class AliyunAdapter:
     async def list_resources(
         self, account: AccountConfig, resource_type: str
     ) -> AsyncIterator[NormalizedResource]:
-        """Not implemented yet (skeleton stage); raises so rounds abort cleanly."""
-        raise NotImplementedError(
-            f"aliyun adapter not implemented yet for {resource_type}"
-        )
-        yield  # pragma: no cover - makes this an async generator
+        """Yield normalized resources via the per-type fetcher module."""
+        fetcher = _FETCHERS.get(resource_type)
+        if fetcher is None:
+            raise NotImplementedError(
+                f"aliyun adapter not implemented yet for {resource_type}"
+            )
+        async for resource in fetcher(account):
+            yield resource
 
 
 register_adapter(AliyunAdapter())

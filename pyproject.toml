@@ -13,6 +13,10 @@ dependencies = [
     "PyYAML>=6.0",
     "croniter>=5.0",
     "tenacity>=9.0",
+    # Aliyun V2 SDK (P1: ecs + vpc; more product packages per phase)
+    "alibabacloud-tea-openapi>=0.3",
+    "alibabacloud-ecs20140526>=5.0",
+    "alibabacloud-vpc20160428>=4.0",
 ]
 
 [project.optional-dependencies]
