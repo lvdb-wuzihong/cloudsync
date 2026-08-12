@@ -86,6 +86,7 @@ def map_instance(raw: dict[str, Any], account_id: str) -> NormalizedResource:
         "creation_time": raw.get("CreationTime"),
         "expired_time": raw.get("ExpiredTime"),
         "vpc_id": vpc_attrs.get("VpcId"),
+        "vswitch_id": vpc_attrs.get("VSwitchId"),
         "private_ip": private_ips[0] if private_ips else None,
         "public_ip": public_ips[0] if public_ips else None,
         "eip": (raw.get("EipAddress") or {}).get("IpAddress") or None,
