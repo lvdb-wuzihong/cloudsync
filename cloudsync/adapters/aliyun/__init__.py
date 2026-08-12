@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from cloudsync.adapters.aliyun.ecs import list_ecs
 from cloudsync.adapters.aliyun.vpc import list_vpc
+from cloudsync.adapters.aliyun.vswitch import list_vswitch
 from cloudsync.adapters.base import register_adapter
 
 if TYPE_CHECKING:
@@ -45,6 +46,7 @@ DEFAULT_RESOURCE_TYPES = [
 _FETCHERS: dict[str, Fetcher] = {
     "aliyun_ecs": list_ecs,
     "aliyun_vpc": list_vpc,
+    "aliyun_vswitch": list_vswitch,
 }
 
 
