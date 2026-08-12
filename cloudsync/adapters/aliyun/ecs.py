@@ -36,6 +36,20 @@ PAGE_SIZE = 100  # DescribeInstances upper bound
 DISCOVERY_REGION = "cn-hangzhou"
 
 
+def _extract_disk_size(raw: dict[str, Any]) -> int | None:
+    """Extract system disk size (GB) from DescribeInstances DiskDeviceMappings."""
+    mappings = (raw.get("DiskDeviceMappings") or {}).get("DiskDeviceMapping") or []
+    for disk in mappings:
+        if disk.get("Type") == "system":
+            size = disk.get("Size")
+            return int(size) if size else None
+    # Fallback: first disk if no system disk marked
+    if mappings:
+        size = mappings[0].get("Size")
+        return int(size) if size else None
+    return None
+
+
 def map_instance(raw: dict[str, Any], account_id: str) -> NormalizedResource:
     """Map one DescribeInstances item (to_map dict) to NormalizedResource.
 
@@ -51,15 +65,17 @@ def map_instance(raw: dict[str, Any], account_id: str) -> NormalizedResource:
         if t.get("TagKey")
     }
     attributes = {
-        "instance_type": raw.get("InstanceType"),
+        "instance_class": raw.get("InstanceType"),
         "cpu": raw.get("Cpu"),
         "memory_mb": raw.get("Memory"),
-        "os_name": raw.get("OSName"),
+        "os": raw.get("OSName"),
         "os_type": raw.get("OSType"),
         "host_name": raw.get("HostName"),
         "image_id": raw.get("ImageId"),
+        "key_pair": raw.get("KeyPairName"),
         "instance_charge_type": raw.get("InstanceChargeType"),
         "internet_charge_type": raw.get("InternetChargeType"),
+        "disk_size_gb": _extract_disk_size(raw),
         "creation_time": raw.get("CreationTime"),
         "expired_time": raw.get("ExpiredTime"),
         "vpc_id": vpc_attrs.get("VpcId"),
