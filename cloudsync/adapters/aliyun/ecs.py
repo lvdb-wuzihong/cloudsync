@@ -36,6 +36,13 @@ PAGE_SIZE = 100  # DescribeInstances upper bound
 DISCOVERY_REGION = "cn-hangzhou"
 
 
+def _safe_div(value: int | None, divisor: int) -> int | None:
+    """Safely divide, returning None if value is None."""
+    if value is None:
+        return None
+    return value // divisor  # integer division, e.g. 16384 MB → 16 GB
+
+
 def _extract_disk_size(raw: dict[str, Any]) -> int | None:
     """Extract system disk size (GB) from DescribeInstances DiskDeviceMappings."""
     mappings = (raw.get("DiskDeviceMappings") or {}).get("DiskDeviceMapping") or []
@@ -67,7 +74,7 @@ def map_instance(raw: dict[str, Any], account_id: str) -> NormalizedResource:
     attributes = {
         "instance_class": raw.get("InstanceType"),
         "cpu": raw.get("Cpu"),
-        "memory_mb": raw.get("Memory"),
+        "memory_gb": _safe_div(raw.get("Memory"), 1024),
         "os": raw.get("OSName"),
         "os_type": raw.get("OSType"),
         "host_name": raw.get("HostName"),
