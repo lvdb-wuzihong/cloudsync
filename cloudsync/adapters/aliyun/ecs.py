@@ -66,6 +66,7 @@ def map_instance(raw: dict[str, Any], account_id: str) -> NormalizedResource:
     vpc_attrs = raw.get("VpcAttributes") or {}
     private_ips = (vpc_attrs.get("PrivateIpAddress") or {}).get("IpAddress") or []
     public_ips = (raw.get("PublicIpAddress") or {}).get("IpAddress") or []
+    charge_type = raw.get("InstanceChargeType")
     raw_tags = {
         t.get("TagKey", ""): t.get("TagValue", "")
         for t in (raw.get("Tags") or {}).get("Tag", [])
@@ -80,11 +81,12 @@ def map_instance(raw: dict[str, Any], account_id: str) -> NormalizedResource:
         "host_name": raw.get("HostName"),
         "image_id": raw.get("ImageId"),
         "key_pair": raw.get("KeyPairName"),
-        "instance_charge_type": raw.get("InstanceChargeType"),
+        "instance_charge_type": charge_type,
         "internet_charge_type": raw.get("InternetChargeType"),
         "disk_size_gb": _extract_disk_size(raw),
         "creation_time": raw.get("CreationTime"),
-        "expired_time": raw.get("ExpiredTime"),
+        # 后付费无到期概念（阿里云返回 2999-12-31 占位值），仅预付费采集到期时间
+        "expired_time": raw.get("ExpiredTime") if charge_type == "PrePaid" else None,
         "vpc_id": vpc_attrs.get("VpcId"),
         "vswitch_id": vpc_attrs.get("VSwitchId"),
         "private_ip": private_ips[0] if private_ips else None,
