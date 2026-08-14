@@ -48,12 +48,13 @@ def test_map_instance_common_fields():
 
 def test_map_instance_attributes_exclude_common_layer():
     r = map_instance(_ECS_RAW, "1234567890")
-    assert r.attributes["instance_type"] == "ecs.g7.large"
+    assert r.attributes["instance_class"] == "ecs.g7.large"
     assert r.attributes["cpu"] == 2
-    assert r.attributes["memory_mb"] == 8192
+    assert r.attributes["memory_gb"] == 8  # 8192 MB // 1024
     assert r.attributes["private_ip"] == "10.0.0.5"
     assert r.attributes["public_ip"] == "1.2.3.4"
     assert r.attributes["vpc_id"] == "vpc-1"
+    assert r.attributes["vswitch_id"] == "vsw-1"
     assert r.attributes["security_group_ids"] == ["sg-1", "sg-2"]
     # common-layer fields never duplicated into attributes
     for banned in ("name", "region", "zone", "status", "provider"):

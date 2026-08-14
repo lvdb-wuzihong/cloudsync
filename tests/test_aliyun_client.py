@@ -72,7 +72,12 @@ async def test_fetch_retries_throttling_then_reraises():
 
 
 def test_fetcher_registry_covers_p1_types():
-    assert set(_FETCHERS) == {"aliyun_ecs", "aliyun_vpc"}
+    assert set(_FETCHERS) == {
+        "aliyun_ecs",
+        "aliyun_vpc",
+        "aliyun_vswitch",
+        "aliyun_security_group",
+    }
 
 
 async def test_adapter_dispatch_unimplemented_type_raises():

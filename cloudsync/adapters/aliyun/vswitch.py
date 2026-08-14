@@ -1,7 +1,8 @@
-"""Aliyun VSwitch adapter: DescribeVSwitches across configured regions (P1).
+"""Aliyun VSwitch adapter: DescribeVSwitches across configured regions.
 
-Same fetching discipline as the VPC module: config-driven region scope,
-page_number pagination, raise-on-failure (no partial sets for the diff).
+Same fetching discipline as vpc.py: config-driven region scope, page_number
+pagination, raise-on-failure. VSwitch is zonal, so zone carries ZoneId;
+parent points at the containing VPC (aliyun_vpc).
 """
 
 from __future__ import annotations
@@ -35,8 +36,8 @@ DISCOVERY_REGION = "cn-hangzhou"
 def map_vswitch(raw: dict[str, Any], account_id: str) -> NormalizedResource:
     """Map one DescribeVSwitches item (to_map dict) to NormalizedResource.
 
-    VSwitch belongs to VPC; parent_provider_id points to the VpcId so the
-    consumer can rebuild VSwitch → VPC belongs_to edges.
+    cidr_block follows the cross-vendor field code convention (design doc
+    section 5.1); parent is the containing VPC.
     """
     raw_tags = {
         t.get("TagKey", ""): t.get("TagValue", "")
@@ -45,10 +46,13 @@ def map_vswitch(raw: dict[str, Any], account_id: str) -> NormalizedResource:
     }
     attributes = {
         "cidr_block": raw.get("CidrBlock"),
-        "available_ip_count": raw.get("AvailableIpAddressCount"),
+        "available_ip_address_count": raw.get("AvailableIpAddressCount"),
+        "ipv6_cidr_block": raw.get("Ipv6CidrBlock") or None,
         "is_default": raw.get("IsDefault"),
-        "description": raw.get("Description"),
+        "enabled_ipv6": raw.get("EnabledIpv6"),
+        "description": raw.get("Description") or None,
         "creation_time": raw.get("CreationTime"),
+        "network_acl_id": raw.get("NetworkAclId") or None,
     }
     attributes = {k: v for k, v in attributes.items() if v is not None}
 
@@ -59,7 +63,7 @@ def map_vswitch(raw: dict[str, Any], account_id: str) -> NormalizedResource:
         provider_id=raw.get("VSwitchId", ""),
         cloud_account=account_id,
         name=raw.get("VSwitchName") or "",
-        region=raw.get("RegionId") or raw.get("ZoneId", "")[:len("cn-hangzhou")],
+        region=raw.get("RegionId") or "",
         zone=raw.get("ZoneId") or "",
         status=normalize_status(raw.get("Status")),
         attributes=attributes,
@@ -67,6 +71,22 @@ def map_vswitch(raw: dict[str, Any], account_id: str) -> NormalizedResource:
         parent_provider_id=vpc_id or None,
         parent_resource_type="aliyun_vpc" if vpc_id else None,
     )
+
+
+async def _discover_regions(account: AccountConfig, client: VpcClient) -> list[str]:
+    """All account regions when accounts.yaml leaves the scope empty."""
+    response = await fetch(
+        lambda: client.describe_regions(vpc_models.DescribeRegionsRequest()),
+        account=account,
+        resource_type=RESOURCE_TYPE,
+        api="DescribeRegions",
+    )
+    body = response.body.to_map()
+    return [
+        r["RegionId"]
+        for r in (body.get("Regions") or {}).get("Region") or []
+        if r.get("RegionId")
+    ]
 
 
 async def _list_region(
@@ -99,23 +119,9 @@ async def _list_region(
 async def list_vswitch(account: AccountConfig) -> AsyncIterator[NormalizedResource]:
     """Fetch all VSwitches of the account across its region scope."""
     started = time.perf_counter()
-    # VSwitch uses the same VPC client and regions as VPC
-    regions = list(account.regions)
-    if not regions:
-        # Discover via VPC DescribeRegions (same API as VPC module)
-        client = build_vpc_client(account, DISCOVERY_REGION)
-        response = await fetch(
-            lambda: client.describe_regions(vpc_models.DescribeRegionsRequest()),
-            account=account,
-            resource_type=RESOURCE_TYPE,
-            api="DescribeRegions",
-        )
-        body = response.body.to_map()
-        regions = [
-            r["RegionId"]
-            for r in (body.get("Regions") or {}).get("Region") or []
-            if r.get("RegionId")
-        ]
+    regions = list(account.regions) or await _discover_regions(
+        account, build_vpc_client(account, DISCOVERY_REGION)
+    )
     count = 0
     for region in regions:
         client = build_vpc_client(account, region)
