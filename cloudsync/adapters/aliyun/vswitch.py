@@ -33,11 +33,12 @@ PAGE_SIZE = 50  # DescribeVSwitches upper bound
 DISCOVERY_REGION = "cn-hangzhou"
 
 
-def map_vswitch(raw: dict[str, Any], account_id: str) -> NormalizedResource:
+def map_vswitch(raw: dict[str, Any], account_id: str, region: str = "") -> NormalizedResource:
     """Map one DescribeVSwitches item (to_map dict) to NormalizedResource.
 
     cidr_block follows the cross-vendor field code convention (design doc
-    section 5.1); parent is the containing VPC.
+    section 5.1); parent is the containing VPC. region comes from the
+    iteration scope (DescribeVSwitches items may omit RegionId).
     """
     raw_tags = {
         t.get("TagKey", ""): t.get("TagValue", "")
@@ -46,7 +47,8 @@ def map_vswitch(raw: dict[str, Any], account_id: str) -> NormalizedResource:
     }
     attributes = {
         "cidr_block": raw.get("CidrBlock"),
-        "available_ip_address_count": raw.get("AvailableIpAddressCount"),
+        "available_ip_count": raw.get("AvailableIpAddressCount"),
+        "vpc_id": raw.get("VpcId") or None,
         "ipv6_cidr_block": raw.get("Ipv6CidrBlock") or None,
         "is_default": raw.get("IsDefault"),
         "enabled_ipv6": raw.get("EnabledIpv6"),
@@ -63,7 +65,7 @@ def map_vswitch(raw: dict[str, Any], account_id: str) -> NormalizedResource:
         provider_id=raw.get("VSwitchId", ""),
         cloud_account=account_id,
         name=raw.get("VSwitchName") or "",
-        region=raw.get("RegionId") or "",
+        region=region or raw.get("RegionId") or "",
         zone=raw.get("ZoneId") or "",
         status=normalize_status(raw.get("Status")),
         attributes=attributes,
@@ -108,7 +110,7 @@ async def _list_region(
         body = response.body.to_map()
         items = (body.get("VSwitches") or {}).get("VSwitch") or []
         for item in items:
-            yield map_vswitch(item, account.account_id)
+            yield map_vswitch(item, account.account_id, region)
         collected += len(items)
         total = body.get("TotalCount") or 0
         if collected >= total or not items:
