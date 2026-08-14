@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from cloudsync.adapters.aliyun.eip import map_eip
 from cloudsync.adapters.aliyun.security_group import _normalize_rule, map_security_group
 from cloudsync.adapters.aliyun.vswitch import map_vswitch
 from cloudsync.normalize.hashing import compute_rules_hash
@@ -31,7 +32,8 @@ def test_map_vswitch_fields():
     assert r.zone == "cn-beijing-h"
     assert r.status == "running"  # Available -> running
     assert r.attributes["cidr_block"] == "10.0.1.0/24"
-    assert r.attributes["available_ip_address_count"] == 250
+    assert r.attributes["available_ip_count"] == 250
+    assert r.attributes["vpc_id"] == "vpc-1"
     assert "ipv6_cidr_block" not in r.attributes  # empty string dropped
     assert r.cloud_tags == {"tier": "web"}
     assert r.parent_provider_id == "vpc-1"
@@ -107,3 +109,42 @@ def test_map_security_group_with_rules():
     r = map_security_group(_SG_RAW, "acc", rules)
     assert r.attributes["rules"] == rules
     assert r.attributes["rules_hash"] == compute_rules_hash(rules)
+
+
+_EIP_RAW = {
+    "AllocationId": "eip-abc",
+    "Name": "web-eip",
+    "IpAddress": "47.96.1.1",
+    "Status": "InUse",
+    "Bandwidth": "100",
+    "ChargeType": "PostPaid",
+    "InternetChargeType": "PayByTraffic",
+    "InstanceType": "EcsInstance",
+    "InstanceId": "i-abc",
+    "RegionId": "cn-hangzhou",
+    "AllocationTime": "2026-01-01T00:00Z",
+    "Tags": {"Tag": [{"TagKey": "env", "TagValue": "prod"}]},
+}
+
+
+def test_map_eip_fields():
+    r = map_eip(_EIP_RAW, "acc")
+    assert r.resource_type == "aliyun_eip"
+    assert r.provider_id == "eip-abc"
+    assert r.name == "web-eip"
+    assert r.region == "cn-hangzhou"
+    assert r.status == "running"  # InUse -> running
+    assert r.attributes["ip_address"] == "47.96.1.1"
+    assert r.attributes["bandwidth"] == 100  # string -> int
+    assert r.attributes["charge_type"] == "PostPaid"
+    assert r.attributes["bind_instance_type"] == "EcsInstance"
+    assert r.attributes["bind_instance_id"] == "i-abc"
+    assert r.cloud_tags == {"env": "prod"}
+    assert r.parent_provider_id is None  # EIP is a network root
+
+
+def test_map_eip_unbound_drops_bind_fields():
+    raw = dict(_EIP_RAW, Status="Available", InstanceType="", InstanceId="")
+    r = map_eip(raw, "acc")
+    assert "bind_instance_type" not in r.attributes
+    assert "bind_instance_id" not in r.attributes
