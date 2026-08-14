@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from cloudsync.adapters.aliyun.ecs import list_ecs
+from cloudsync.adapters.aliyun.security_group import list_security_group
 from cloudsync.adapters.aliyun.vpc import list_vpc
 from cloudsync.adapters.aliyun.vswitch import list_vswitch
 from cloudsync.adapters.base import register_adapter
@@ -47,6 +48,7 @@ _FETCHERS: dict[str, Fetcher] = {
     "aliyun_ecs": list_ecs,
     "aliyun_vpc": list_vpc,
     "aliyun_vswitch": list_vswitch,
+    "aliyun_security_group": list_security_group,
 }
 
 
