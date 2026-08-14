@@ -104,20 +104,22 @@ def map_security_group(
         for t in (raw.get("Tags") or {}).get("Tag", [])
         if t.get("TagKey")
     }
+    vpc_id = raw.get("VpcId") or ""
     attributes = {
-        "security_group_type": raw.get("SecurityGroupType"),
+        # 字段 code 对齐 CMDB 模型定义（sg_type / vpc_id）
+        "sg_type": raw.get("SecurityGroupType"),
         "description": raw.get("Description"),
         "creation_time": raw.get("CreationTime"),
         "resource_group_id": raw.get("ResourceGroupId"),
         "available_instance_amount": raw.get("AvailableInstanceAmount"),
         "ecs_count": raw.get("EcsCount"),
+        "vpc_id": vpc_id or None,
     }
     if rules is not None:
         attributes["rules"] = rules
         attributes["rules_hash"] = compute_rules_hash(rules)
     attributes = {k: v for k, v in attributes.items() if v is not None}
 
-    vpc_id = raw.get("VpcId") or ""
     return NormalizedResource(
         provider=PROVIDER,
         resource_type=RESOURCE_TYPE,

@@ -68,7 +68,8 @@ def test_map_security_group_without_rules():
     r = map_security_group(_SG_RAW, "acc")
     assert r.resource_type == "aliyun_security_group"
     assert r.provider_id == "sg-abc"
-    assert r.attributes["security_group_type"] == "normal"
+    assert r.attributes["sg_type"] == "normal"
+    assert r.attributes["vpc_id"] == "vpc-1"
     assert r.attributes["ecs_count"] == 3
     assert "rules" not in r.attributes
     assert "rules_hash" not in r.attributes
