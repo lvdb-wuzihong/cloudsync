@@ -29,6 +29,7 @@ _DEFAULT_MAP: dict[str, str] = {
     "provisioning": "maintenance",  # aliyun NLB
     "configuring": "maintenance",  # aliyun NLB
     "deleting": "maintenance",  # aliyun NLB
+    "converting": "maintenance",  # aliyun NAT gateway
 }
 
 

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from cloudsync.adapters.aliyun.clb import list_clb
 from cloudsync.adapters.aliyun.ecs import list_ecs
 from cloudsync.adapters.aliyun.eip import list_eip
+from cloudsync.adapters.aliyun.nat_gateway import list_nat_gateway
 from cloudsync.adapters.aliyun.nlb import list_nlb
 from cloudsync.adapters.aliyun.security_group import list_security_group
 from cloudsync.adapters.aliyun.vpc import list_vpc
@@ -55,6 +56,7 @@ _FETCHERS: dict[str, Fetcher] = {
     "aliyun_eip": list_eip,
     "aliyun_clb": list_clb,
     "aliyun_nlb": list_nlb,
+    "aliyun_nat_gateway": list_nat_gateway,
 }
 
 

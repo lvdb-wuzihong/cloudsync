@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from cloudsync.adapters.aliyun.clb import map_clb
 from cloudsync.adapters.aliyun.eip import map_eip
+from cloudsync.adapters.aliyun.nat_gateway import map_nat_gateway
 from cloudsync.adapters.aliyun.nlb import map_nlb
 from cloudsync.adapters.aliyun.security_group import _normalize_rule, map_security_group
 from cloudsync.adapters.aliyun.vswitch import map_vswitch
@@ -274,3 +275,75 @@ def test_map_nlb_without_listeners():
     assert r.attributes["dns_name"] == "nlb-abc.cn-hangzhou.nlb.aliyuncsslb.com"
     assert "server_groups" not in r.attributes
     assert "_backend_ecs_ids" not in r.attributes
+
+
+_NAT_RAW = {
+    "NatGatewayId": "ngw-abc",
+    "Name": "web-nat",
+    "RegionId": "cn-hangzhou",
+    "VpcId": "vpc-1",
+    "NatType": "Enhanced",
+    "Spec": "Small",
+    "NetworkType": "internet",
+    "InstanceChargeType": "PostPaid",
+    "Status": "Available",
+    "CreationTime": "2026-01-01T00:00Z",
+    "IpLists": {"IpList": [
+        {"AllocationId": "eip-2", "IpAddress": "47.96.1.2"},
+        {"AllocationId": "eip-1", "IpAddress": "47.96.1.1"},
+        {"AllocationId": "eip-1", "IpAddress": "47.96.1.1"},
+    ]},
+    "SnatTableIds": {"SnatTableId": ["stb-1"]},
+    "ForwardTableIds": {"ForwardTableId": ["ftb-1"]},
+    "Tags": {"Tag": [{"TagKey": "env", "TagValue": "prod"}]},
+}
+
+_NAT_SNAT = [
+    {"snat_entry_id": "snat-2", "source_vswitch_id": "vsw-2",
+     "snat_ips": ["47.96.1.2"], "status": "Available"},
+    {"snat_entry_id": "snat-1", "source_cidr": "10.0.0.0/24",
+     # comma-joined API value already split + sorted by the adapter fetch layer
+     "snat_ips": ["47.96.1.1", "47.96.1.2"], "status": "Available"},
+]
+
+_NAT_DNAT = [
+    {"dnat_entry_id": "dnat-1", "public_ip": "47.96.1.1", "public_port": "443",
+     "private_ip": "10.0.1.5", "private_port": "8443", "protocol": "TCP",
+     "status": "Available"},
+]
+
+
+def test_map_nat_gateway_fields():
+    r = map_nat_gateway(_NAT_RAW, "acc", _NAT_SNAT, _NAT_DNAT)
+    assert r.resource_type == "aliyun_nat_gateway"
+    assert r.provider_id == "ngw-abc"
+    assert r.region == "cn-hangzhou"
+    assert r.status == "running"  # Available -> running
+    assert r.attributes["nat_type"] == "Enhanced"
+    assert r.attributes["spec"] == "Small"
+    assert r.attributes["vpc_id"] == "vpc-1"
+    # eip ids deduped + sorted
+    assert r.attributes["eip_ids"] == ["eip-1", "eip-2"]
+    # snat entries sorted by (source_cidr, source_vswitch_id) for stable hash
+    assert r.attributes["snat_entries"][0]["snat_entry_id"] == "snat-2"
+    assert r.attributes["dnat_entries"] == _NAT_DNAT
+    assert len(r.attributes["snat_hash"]) == 16
+    assert len(r.attributes["dnat_hash"]) == 16
+    assert r.cloud_tags == {"env": "prod"}
+    assert r.parent_provider_id == "vpc-1"
+    assert r.parent_resource_type == "aliyun_vpc"
+
+
+def test_map_nat_gateway_hash_stable_for_same_entries():
+    a = map_nat_gateway(_NAT_RAW, "acc", _NAT_SNAT, _NAT_DNAT)
+    b = map_nat_gateway(_NAT_RAW, "acc", list(reversed(_NAT_SNAT)), _NAT_DNAT)
+    assert a.attributes["snat_hash"] == b.attributes["snat_hash"]
+
+
+def test_map_nat_gateway_without_entries():
+    r = map_nat_gateway(_NAT_RAW, "acc")
+    assert "snat_entries" not in r.attributes
+    assert "dnat_entries" not in r.attributes
+    assert "snat_hash" not in r.attributes
+    assert "dnat_hash" not in r.attributes
+    assert r.attributes["eip_ids"] == ["eip-1", "eip-2"]
