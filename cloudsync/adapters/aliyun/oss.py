@@ -2,10 +2,10 @@
 
 OSS is a global service: ListBuckets returns every bucket of the account
 across all regions, so the accounts.yaml region scope does NOT apply here
-(each bucket carries its own region/Location). The v2 SDK ships a native
-async client (aio.AsyncClient); ServiceError is normalized onto the engine
-hierarchy with the same discipline as client.py: throttling retried, auth
-never retried, everything else aborts the round (no partial sets for diff).
+(each bucket carries its own region/Location). ServiceError is normalized
+onto the engine hierarchy with the same discipline as client.py:
+throttling retried, auth never retried, everything else aborts the round
+(no partial sets for diff).
 
 Per-bucket enrichment: GetBucketInfo (acl / redundancy / versioning /
 endpoints), GetBucketStat (storage usage), GetBucketLifecycle (rules;
@@ -13,10 +13,11 @@ NoSuchLifecycle is benign = no rules). Field codes align with the CMDB
 model aliyun_oss (acl / storage_class / redundancy_type / versioning /
 endpoint / intranet_endpoint / used_size_gb / lifecycle_rules).
 
-SDK surface note: the v2 aio AsyncClient (1.3.x) implements list/info/stat
-but NOT lifecycle operations; GetBucketLifecycle therefore goes through the
-sync Client bridged with asyncio.to_thread (only lifecycle pays the thread
-hop, the hot path stays native async).
+SDK surface note: the v2 SDK is used through its SYNC Client for ALL
+operations, bridged with asyncio.to_thread inside fetch_oss - the same
+pattern as the tea-based adapters (client.py fetch). The aio AsyncClient
+is deliberately NOT used: its operation surface is incomplete (1.3.x has
+no lifecycle ops), which is exactly the drift risk the sync client avoids.
 """
 
 from __future__ import annotations
@@ -28,8 +29,7 @@ from typing import TYPE_CHECKING, Any
 
 from alibabacloud_oss_v2 import Config
 from alibabacloud_oss_v2 import models as oss_models
-from alibabacloud_oss_v2.aio import AsyncClient
-from alibabacloud_oss_v2.client import Client as SyncClient
+from alibabacloud_oss_v2.client import Client
 from alibabacloud_oss_v2.credentials import StaticCredentialsProvider
 from alibabacloud_oss_v2.exceptions import ServiceError
 
@@ -82,9 +82,9 @@ async def fetch_oss(
     account: AccountConfig,
     api: str,
 ) -> Any:
-    """Run one v2 SDK async call with throttling retries and error mapping."""
+    """Run one sync v2 SDK call off the event loop with retries and mapping."""
     try:
-        return await call()
+        return await asyncio.to_thread(call)
     except ServiceError as exc:
         mapped = map_oss_exception(exc)
         if isinstance(mapped, RateLimitError):
@@ -94,25 +94,11 @@ async def fetch_oss(
         raise mapped from exc
 
 
-def build_client(account: AccountConfig, region: str) -> AsyncClient:
-    """Region-bound async OSS client from the account's static credentials."""
-    if not account.access_key_id or not account.access_key_secret:
-        raise CredentialError("missing access_key_id/access_key_secret")
-    config = Config(
-        credentials_provider=StaticCredentialsProvider(
-            access_key_id=account.access_key_id,
-            access_key_secret=account.access_key_secret,
-        ),
-        region=region,
-    )
-    return AsyncClient(config)
+def build_client(account: AccountConfig, region: str) -> Client:
+    """Region-bound sync OSS client from the account's static credentials.
 
-
-def build_sync_client(account: AccountConfig, region: str) -> SyncClient:
-    """Region-bound sync client for ops missing from the aio surface.
-
-    The v2 aio AsyncClient (1.3.x) does not implement lifecycle operations,
-    so GetBucketLifecycle goes through this client via asyncio.to_thread.
+    Sync client on purpose: full operation surface (the aio AsyncClient
+    lacks lifecycle ops); fetch_oss bridges calls off the event loop.
     """
     if not account.access_key_id or not account.access_key_secret:
         raise CredentialError("missing access_key_id/access_key_secret")
@@ -123,7 +109,7 @@ def build_sync_client(account: AccountConfig, region: str) -> SyncClient:
         ),
         region=region,
     )
-    return SyncClient(config)
+    return Client(config)
 
 
 def _extract_region(location: str | None) -> str:
@@ -207,7 +193,7 @@ def map_oss(
     )
 
 
-async def _bucket_info(account: AccountConfig, client: AsyncClient, name: str) -> Any:
+async def _bucket_info(account: AccountConfig, client: Client, name: str) -> Any:
     """GetBucketInfo: acl / redundancy / versioning / endpoints."""
     result = await fetch_oss(
         lambda: client.get_bucket_info(oss_models.GetBucketInfoRequest(bucket=name)),
@@ -217,7 +203,7 @@ async def _bucket_info(account: AccountConfig, client: AsyncClient, name: str) -
 
 
 async def _bucket_storage_bytes(
-    account: AccountConfig, client: AsyncClient, name: str
+    account: AccountConfig, client: Client, name: str
 ) -> int | None:
     """GetBucketStat: current storage usage in bytes."""
     result = await fetch_oss(
@@ -228,17 +214,13 @@ async def _bucket_storage_bytes(
 
 
 async def _bucket_lifecycle(
-    account: AccountConfig, client: SyncClient, name: str
+    account: AccountConfig, client: Client, name: str
 ) -> list[dict[str, Any]]:
-    """Fetch + normalize lifecycle rules; empty when none configured.
-
-    Sync client call bridged with to_thread (aio surface lacks lifecycle).
-    """
+    """Fetch + normalize lifecycle rules; empty when none configured."""
     try:
         result = await fetch_oss(
-            lambda: asyncio.to_thread(
-                client.get_bucket_lifecycle,
-                oss_models.GetBucketLifecycleRequest(bucket=name),
+            lambda: client.get_bucket_lifecycle(
+                oss_models.GetBucketLifecycleRequest(bucket=name)
             ),
             account=account, api="GetBucketLifecycle",
         )
@@ -257,48 +239,35 @@ async def _bucket_lifecycle(
 async def list_oss(account: AccountConfig) -> AsyncIterator[NormalizedResource]:
     """Fetch all buckets of the account (global; region scope not applicable)."""
     started = time.perf_counter()
-    clients: dict[str, AsyncClient] = {}
-    sync_clients: dict[str, SyncClient] = {}
+    clients: dict[str, Client] = {}
 
-    def client_for(region: str) -> AsyncClient:
-        """One async client per region, reused across buckets, closed at end."""
+    def client_for(region: str) -> Client:
+        """One sync client per region, reused across buckets (no close needed)."""
         if region not in clients:
             clients[region] = build_client(account, region)
         return clients[region]
 
-    def sync_client_for(region: str) -> SyncClient:
-        """Lazy sync client per region (lifecycle-only; no close needed)."""
-        if region not in sync_clients:
-            sync_clients[region] = build_sync_client(account, region)
-        return sync_clients[region]
-
     count = 0
-    try:
-        service = client_for(SERVICE_REGION)
-        marker: str | None = None
-        while True:
-            result = await fetch_oss(
-                lambda m=marker: service.list_buckets(
-                    oss_models.ListBucketsRequest(marker=m, max_keys=PAGE_SIZE)
-                ),
-                account=account, api=API_NAME,
-            )
-            for props in result.buckets or []:
-                region = props.region or _extract_region(props.location)
-                client = client_for(region)
-                info = await _bucket_info(account, client, props.name)
-                storage_bytes = await _bucket_storage_bytes(account, client, props.name)
-                lifecycle = await _bucket_lifecycle(
-                    account, sync_client_for(region), props.name
-                )
-                count += 1
-                yield map_oss(props, account.account_id, info, storage_bytes, lifecycle)
-            if not result.is_truncated:
-                break
-            marker = result.next_marker
-    finally:
-        for client in clients.values():
-            await client.close()
+    service = client_for(SERVICE_REGION)
+    marker: str | None = None
+    while True:
+        result = await fetch_oss(
+            lambda m=marker: service.list_buckets(
+                oss_models.ListBucketsRequest(marker=m, max_keys=PAGE_SIZE)
+            ),
+            account=account, api=API_NAME,
+        )
+        for props in result.buckets or []:
+            region = props.region or _extract_region(props.location)
+            client = client_for(region)
+            info = await _bucket_info(account, client, props.name)
+            storage_bytes = await _bucket_storage_bytes(account, client, props.name)
+            lifecycle = await _bucket_lifecycle(account, client, props.name)
+            count += 1
+            yield map_oss(props, account.account_id, info, storage_bytes, lifecycle)
+        if not result.is_truncated:
+            break
+        marker = result.next_marker
     duration_ms = (time.perf_counter() - started) * 1000
     logger.info("OSS fetch completed",
                 extra={"provider": PROVIDER, "account": account.account_id,

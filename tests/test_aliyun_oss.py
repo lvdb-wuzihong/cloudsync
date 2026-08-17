@@ -70,18 +70,17 @@ def test_map_oss_region_from_location_when_region_missing():
 
 
 def test_sdk_surface_covers_required_ops():
-    """Pin the v2 SDK client surface the adapter relies on.
+    """Pin the v2 sync Client surface the adapter relies on.
 
-    The aio AsyncClient lacks lifecycle ops (1.3.x); lifecycle goes through
-    the sync Client. If a future SDK adds aio lifecycle, the bridge can be
-    removed - until then this guard prevents silent surface drift.
+    The adapter deliberately uses the sync Client (aio AsyncClient has an
+    incomplete surface: no lifecycle ops in 1.3.x). If the SDK ever drops or
+    renames one of these, this guard fails locally instead of in prod.
     """
-    from alibabacloud_oss_v2.aio import AsyncClient
-    from alibabacloud_oss_v2.client import Client as SyncClient
+    from alibabacloud_oss_v2.client import Client
 
-    for op in ("list_buckets", "get_bucket_info", "get_bucket_stat"):
-        assert hasattr(AsyncClient, op), f"aio AsyncClient lost {op}"
-    assert hasattr(SyncClient, "get_bucket_lifecycle")
+    for op in ("list_buckets", "get_bucket_info", "get_bucket_stat",
+               "get_bucket_lifecycle"):
+        assert hasattr(Client, op), f"sync Client lost {op}"
 
 
 def test_normalize_lifecycle_rules_sdk_shapes():
