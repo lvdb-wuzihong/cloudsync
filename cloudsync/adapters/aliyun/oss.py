@@ -12,10 +12,16 @@ endpoints), GetBucketStat (storage usage), GetBucketLifecycle (rules;
 NoSuchLifecycle is benign = no rules). Field codes align with the CMDB
 model aliyun_oss (acl / storage_class / redundancy_type / versioning /
 endpoint / intranet_endpoint / used_size_gb / lifecycle_rules).
+
+SDK surface note: the v2 aio AsyncClient (1.3.x) implements list/info/stat
+but NOT lifecycle operations; GetBucketLifecycle therefore goes through the
+sync Client bridged with asyncio.to_thread (only lifecycle pays the thread
+hop, the hot path stays native async).
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import TYPE_CHECKING, Any
@@ -23,6 +29,7 @@ from typing import TYPE_CHECKING, Any
 from alibabacloud_oss_v2 import Config
 from alibabacloud_oss_v2 import models as oss_models
 from alibabacloud_oss_v2.aio import AsyncClient
+from alibabacloud_oss_v2.client import Client as SyncClient
 from alibabacloud_oss_v2.credentials import StaticCredentialsProvider
 from alibabacloud_oss_v2.exceptions import ServiceError
 
@@ -99,6 +106,24 @@ def build_client(account: AccountConfig, region: str) -> AsyncClient:
         region=region,
     )
     return AsyncClient(config)
+
+
+def build_sync_client(account: AccountConfig, region: str) -> SyncClient:
+    """Region-bound sync client for ops missing from the aio surface.
+
+    The v2 aio AsyncClient (1.3.x) does not implement lifecycle operations,
+    so GetBucketLifecycle goes through this client via asyncio.to_thread.
+    """
+    if not account.access_key_id or not account.access_key_secret:
+        raise CredentialError("missing access_key_id/access_key_secret")
+    config = Config(
+        credentials_provider=StaticCredentialsProvider(
+            access_key_id=account.access_key_id,
+            access_key_secret=account.access_key_secret,
+        ),
+        region=region,
+    )
+    return SyncClient(config)
 
 
 def _extract_region(location: str | None) -> str:
@@ -203,13 +228,17 @@ async def _bucket_storage_bytes(
 
 
 async def _bucket_lifecycle(
-    account: AccountConfig, client: AsyncClient, name: str
+    account: AccountConfig, client: SyncClient, name: str
 ) -> list[dict[str, Any]]:
-    """Fetch + normalize lifecycle rules; empty when none configured."""
+    """Fetch + normalize lifecycle rules; empty when none configured.
+
+    Sync client call bridged with to_thread (aio surface lacks lifecycle).
+    """
     try:
         result = await fetch_oss(
-            lambda: client.get_bucket_lifecycle(
-                oss_models.GetBucketLifecycleRequest(bucket=name)
+            lambda: asyncio.to_thread(
+                client.get_bucket_lifecycle,
+                oss_models.GetBucketLifecycleRequest(bucket=name),
             ),
             account=account, api="GetBucketLifecycle",
         )
@@ -229,12 +258,19 @@ async def list_oss(account: AccountConfig) -> AsyncIterator[NormalizedResource]:
     """Fetch all buckets of the account (global; region scope not applicable)."""
     started = time.perf_counter()
     clients: dict[str, AsyncClient] = {}
+    sync_clients: dict[str, SyncClient] = {}
 
     def client_for(region: str) -> AsyncClient:
         """One async client per region, reused across buckets, closed at end."""
         if region not in clients:
             clients[region] = build_client(account, region)
         return clients[region]
+
+    def sync_client_for(region: str) -> SyncClient:
+        """Lazy sync client per region (lifecycle-only; no close needed)."""
+        if region not in sync_clients:
+            sync_clients[region] = build_sync_client(account, region)
+        return sync_clients[region]
 
     count = 0
     try:
@@ -252,7 +288,9 @@ async def list_oss(account: AccountConfig) -> AsyncIterator[NormalizedResource]:
                 client = client_for(region)
                 info = await _bucket_info(account, client, props.name)
                 storage_bytes = await _bucket_storage_bytes(account, client, props.name)
-                lifecycle = await _bucket_lifecycle(account, client, props.name)
+                lifecycle = await _bucket_lifecycle(
+                    account, sync_client_for(region), props.name
+                )
                 count += 1
                 yield map_oss(props, account.account_id, info, storage_bytes, lifecycle)
             if not result.is_truncated:

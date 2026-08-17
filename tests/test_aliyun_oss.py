@@ -69,6 +69,21 @@ def test_map_oss_region_from_location_when_region_missing():
     assert r.region == "cn-hangzhou"  # oss- prefix stripped from Location
 
 
+def test_sdk_surface_covers_required_ops():
+    """Pin the v2 SDK client surface the adapter relies on.
+
+    The aio AsyncClient lacks lifecycle ops (1.3.x); lifecycle goes through
+    the sync Client. If a future SDK adds aio lifecycle, the bridge can be
+    removed - until then this guard prevents silent surface drift.
+    """
+    from alibabacloud_oss_v2.aio import AsyncClient
+    from alibabacloud_oss_v2.client import Client as SyncClient
+
+    for op in ("list_buckets", "get_bucket_info", "get_bucket_stat"):
+        assert hasattr(AsyncClient, op), f"aio AsyncClient lost {op}"
+    assert hasattr(SyncClient, "get_bucket_lifecycle")
+
+
 def test_normalize_lifecycle_rules_sdk_shapes():
     """Fakes mirror alibabacloud_oss_v2 model attribute names exactly."""
     from cloudsync.adapters.aliyun.oss import _normalize_lifecycle_rules
