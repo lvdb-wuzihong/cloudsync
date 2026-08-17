@@ -21,8 +21,8 @@ dependencies = [
     "alibabacloud-nlb20220430>=2.0",
     "alibabacloud-nas20170626>=2.0",
     "alibabacloud-rds20140815>=3.0",
-    # OSS has no tea-based OpenAPI SDK; classic oss2 for ListBuckets & bucket attrs
-    "oss2>=2.18",
+    # OSS uses the official 2.0 SDK (sync Client, typed models); oss2 is legacy
+    "alibabacloud-oss-v2>=1.3",
 ]
 
 [project.optional-dependencies]
