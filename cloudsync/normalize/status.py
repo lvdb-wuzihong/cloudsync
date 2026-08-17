@@ -13,7 +13,6 @@ _DEFAULT_MAP: dict[str, str] = {
     "active": "running",
     "inuse": "running",
     "in-use": "running",
-    "in_use": "running",  # aliyun disk raw status (In_use)
     "stopped": "stopped",
     "inactive": "stopped",
     "locked": "stopped",
@@ -36,6 +35,15 @@ _DEFAULT_MAP: dict[str, str] = {
     "reiniting": "maintenance",  # aliyun disk
     "extending": "maintenance",  # aliyun NAS
     "shrinking": "maintenance",  # aliyun NAS
+    # aliyun RDS operational states (all lowercased by normalize_status)
+    "transing": "maintenance",
+    "importing": "maintenance",
+    "restoring": "maintenance",
+    "dbinstance_class_changing": "maintenance",
+    "engine_version_upgrading": "maintenance",
+    "net_type_changing": "maintenance",
+    "guard_db_creating": "maintenance",
+    "temp_db_creating": "maintenance",
 }
 
 
