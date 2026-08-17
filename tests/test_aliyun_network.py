@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from cloudsync.adapters.aliyun.clb import map_clb
 from cloudsync.adapters.aliyun.eip import map_eip
+from cloudsync.adapters.aliyun.nlb import map_nlb
 from cloudsync.adapters.aliyun.security_group import _normalize_rule, map_security_group
 from cloudsync.adapters.aliyun.vswitch import map_vswitch
 from cloudsync.normalize.hashing import compute_rules_hash
@@ -206,3 +207,70 @@ def test_map_clb_without_attribute():
     assert "_backend_ecs_ids" not in r.attributes
     assert "vpc_id" not in r.attributes
     assert r.parent_provider_id is None
+
+
+_NLB_RAW = {
+    "LoadBalancerId": "nlb-abc",
+    "LoadBalancerName": "web-nlb",
+    "RegionId": "cn-hangzhou",
+    "DNSName": "nlb-abc.cn-hangzhou.nlb.aliyuncsslb.com",
+    "AddressType": "Internet",
+    "LoadBalancerStatus": "Active",
+    "VpcId": "vpc-1",
+    "ZoneMappings": [
+        {"ZoneId": "cn-hangzhou-j", "VSwitchId": "vsw-2", "LoadBalancerAddresses": []},
+        {"ZoneId": "cn-hangzhou-h", "VSwitchId": "vsw-1", "LoadBalancerAddresses": [
+            {"PrivateIPv4Address": "10.0.1.5", "PublicIpAddress": "47.96.3.3",
+             "AllocationId": "eip-1"},
+        ]},
+    ],
+    "Tags": [{"Key": "env", "Value": "prod"}],
+}
+
+_NLB_LISTENERS = [
+    {"ListenerPort": 443, "ListenerProtocol": "TCP", "ServerGroupId": "sgp-1"},
+    {"ListenerPort": 80, "ListenerProtocol": "TCP", "ServerGroupId": "sgp-1"},
+]
+
+_NLB_SG_META = {
+    "sgp-1": {"ServerGroupId": "sgp-1", "ServerGroupName": "web-group",
+              "ServerGroupType": "Instance"},
+}
+
+
+def test_map_nlb_fields():
+    r = map_nlb(_NLB_RAW, "acc", _NLB_LISTENERS, _NLB_SG_META, ["i-2", "i-1", "i-2"])
+    assert r.resource_type == "aliyun_nlb"
+    assert r.provider_id == "nlb-abc"
+    assert r.region == "cn-hangzhou"
+    assert r.status == "running"  # Active -> running
+    assert r.attributes["dns_name"] == "nlb-abc.cn-hangzhou.nlb.aliyuncsslb.com"
+    assert r.attributes["address_type"] == "internet"  # Internet -> lowercase enum
+    assert r.attributes["vpc_id"] == "vpc-1"
+    # zone mappings sorted by zone_id, snake_case keys
+    assert r.attributes["zone_mappings"] == [
+        {"zone_id": "cn-hangzhou-h", "vswitch_id": "vsw-1",
+         "addresses": [{"private_ipv4": "10.0.1.5", "public_ip": "47.96.3.3",
+                        "eip_allocation_id": "eip-1"}]},
+        {"zone_id": "cn-hangzhou-j", "vswitch_id": "vsw-2", "addresses": []},
+    ]
+    # listeners grouped by server group, ports sorted for stable hash
+    assert r.attributes["server_groups"] == [{
+        "server_group_id": "sgp-1",
+        "server_group_name": "web-group",
+        "server_group_type": "Instance",
+        "listeners": [{"port": 80, "protocol": "TCP"},
+                      {"port": 443, "protocol": "TCP"}],
+    }]
+    # backend ids deduped + sorted (internal metadata)
+    assert r.attributes["_backend_ecs_ids"] == ["i-1", "i-2"]
+    assert r.cloud_tags == {"env": "prod"}
+    assert r.parent_provider_id == "vpc-1"
+    assert r.parent_resource_type == "aliyun_vpc"
+
+
+def test_map_nlb_without_listeners():
+    r = map_nlb(_NLB_RAW, "acc")
+    assert r.attributes["dns_name"] == "nlb-abc.cn-hangzhou.nlb.aliyuncsslb.com"
+    assert "server_groups" not in r.attributes
+    assert "_backend_ecs_ids" not in r.attributes

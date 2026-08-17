@@ -18,6 +18,7 @@ dependencies = [
     "alibabacloud-ecs20140526>=5.0",
     "alibabacloud-vpc20160428>=4.0",
     "alibabacloud-slb20140515>=3.0",
+    "alibabacloud-nlb20220430>=2.0",
 ]
 
 [project.optional-dependencies]

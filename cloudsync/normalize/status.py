@@ -26,6 +26,9 @@ _DEFAULT_MAP: dict[str, str] = {
     "stopping": "maintenance",
     "creating": "maintenance",
     "pending": "maintenance",
+    "provisioning": "maintenance",  # aliyun NLB
+    "configuring": "maintenance",  # aliyun NLB
+    "deleting": "maintenance",  # aliyun NLB
 }
 
 
