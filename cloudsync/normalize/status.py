@@ -13,6 +13,7 @@ _DEFAULT_MAP: dict[str, str] = {
     "active": "running",
     "inuse": "running",
     "in-use": "running",
+    "in_use": "running",  # aliyun disk raw status (In_use)
     "stopped": "stopped",
     "inactive": "stopped",
     "locked": "stopped",
