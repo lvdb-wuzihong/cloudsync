@@ -33,6 +33,8 @@ _DEFAULT_MAP: dict[str, str] = {
     "attaching": "maintenance",  # aliyun disk
     "detaching": "maintenance",  # aliyun disk
     "reiniting": "maintenance",  # aliyun disk
+    "extending": "maintenance",  # aliyun NAS
+    "shrinking": "maintenance",  # aliyun NAS
 }
 
 

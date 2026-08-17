@@ -16,6 +16,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from alibabacloud_ecs20140526.client import Client as EcsClient
+from alibabacloud_nas20170626.client import Client as NasClient
 from alibabacloud_nlb20220430.client import Client as NlbClient
 from alibabacloud_slb20140515.client import Client as SlbClient
 from alibabacloud_tea_openapi.models import Config as OpenApiConfig
@@ -81,6 +82,11 @@ def build_slb_client(account: AccountConfig, region: str) -> SlbClient:
 def build_nlb_client(account: AccountConfig, region: str) -> NlbClient:
     """NLB product client for one account+region."""
     return NlbClient(build_openapi_config(account, region))
+
+
+def build_nas_client(account: AccountConfig, region: str) -> NasClient:
+    """NAS (file storage) product client for one account+region."""
+    return NasClient(build_openapi_config(account, region))
 
 
 def map_sdk_exception(exc: Exception, resource_type: str) -> AdapterError:

@@ -8,6 +8,7 @@ from cloudsync.adapters.aliyun.clb import list_clb
 from cloudsync.adapters.aliyun.disk import list_disk
 from cloudsync.adapters.aliyun.ecs import list_ecs
 from cloudsync.adapters.aliyun.eip import list_eip
+from cloudsync.adapters.aliyun.nas import list_nas
 from cloudsync.adapters.aliyun.nat_gateway import list_nat_gateway
 from cloudsync.adapters.aliyun.nlb import list_nlb
 from cloudsync.adapters.aliyun.oss import list_oss
@@ -61,6 +62,7 @@ _FETCHERS: dict[str, Fetcher] = {
     "aliyun_nat_gateway": list_nat_gateway,
     "aliyun_oss": list_oss,
     "aliyun_disk": list_disk,
+    "aliyun_nas": list_nas,
 }
 
 
