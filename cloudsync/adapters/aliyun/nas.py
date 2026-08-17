@@ -125,8 +125,10 @@ async def _list_region(
     page = 1
     collected = 0
     while True:
+        # Region scope comes from the client endpoint; the request model
+        # has no region_id parameter.
         request = nas_models.DescribeFileSystemsRequest(
-            region_id=region, page_number=page, page_size=PAGE_SIZE
+            page_number=page, page_size=PAGE_SIZE
         )
         response = await fetch(
             lambda req=request: client.describe_file_systems(req),
