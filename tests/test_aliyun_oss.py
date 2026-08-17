@@ -17,7 +17,7 @@ _OSS_RAW = SimpleNamespace(
 _OSS_INFO = SimpleNamespace(
     acl="private",
     data_redundancy_type="LRS",
-    versioning_status="Enabled",
+    versioning="Enabled",
     extranet_endpoint="web-bucket.oss-cn-hangzhou.aliyuncs.com",
     intranet_endpoint="web-bucket.oss-cn-hangzhou-internal.aliyuncs.com",
 )
@@ -48,7 +48,7 @@ def test_map_oss_fields():
 
 
 def test_map_oss_versioning_suspended_is_false():
-    info = SimpleNamespace(**vars(_OSS_INFO), versioning_status="Suspended")
+    info = SimpleNamespace(**{**vars(_OSS_INFO), "versioning": "Suspended"})
     r = map_oss(_OSS_RAW, "acc", info)
     assert r.attributes["versioning"] is False
 
@@ -64,6 +64,28 @@ def test_map_oss_without_enrichment():
 
 
 def test_map_oss_region_from_location_when_region_missing():
-    raw = SimpleNamespace(**vars(_OSS_RAW), region=None)
+    raw = SimpleNamespace(**{**vars(_OSS_RAW), "region": None})
     r = map_oss(raw, "acc")
     assert r.region == "cn-hangzhou"  # oss- prefix stripped from Location
+
+
+def test_normalize_lifecycle_rules_sdk_shapes():
+    """Fakes mirror alibabacloud_oss_v2 model attribute names exactly."""
+    from cloudsync.adapters.aliyun.oss import _normalize_lifecycle_rules
+
+    expiration = SimpleNamespace(
+        days=30, created_before_date=None, expired_object_delete_marker=None
+    )
+    transition = SimpleNamespace(
+        days=60, created_before_date=None, storage_class="IA"
+    )
+    rule = SimpleNamespace(
+        id="rule-1", prefix="logs/", status="Enabled",
+        expiration=expiration, transitions=[transition],
+    )
+    normalized = _normalize_lifecycle_rules([rule])
+    assert normalized == [{
+        "id": "rule-1", "prefix": "logs/", "status": "Enabled",
+        "expiration": {"days": 30},
+        "transitions": [{"days": 60, "storage_class": "IA"}],
+    }]

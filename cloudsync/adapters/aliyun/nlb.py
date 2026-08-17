@@ -78,7 +78,7 @@ def _normalize_server_groups(
     for sg_id in sorted(grouped):
         meta = (server_group_meta or {}).get(sg_id) or {}
         listener_list = sorted(
-            grouped[sg_id], key=lambda l: (l.get("port") or 0, l.get("protocol") or "")
+            grouped[sg_id], key=lambda ln: (ln.get("port") or 0, ln.get("protocol") or "")
         )
         entries.append({
             "server_group_id": sg_id,
@@ -261,7 +261,7 @@ async def _list_region(
         lb_id = item.get("LoadBalancerId") or ""
         listeners = await _list_listeners(account, client, lb_id) if lb_id else []
         backend_ecs_ids: list[str] = []
-        sg_ids = {l.get("ServerGroupId") for l in listeners if l.get("ServerGroupId")}
+        sg_ids = {ln.get("ServerGroupId") for ln in listeners if ln.get("ServerGroupId")}
         for sg_id in sg_ids:
             if sg_id not in sg_backend_cache:
                 servers = await _list_server_group_servers(account, client, sg_id)

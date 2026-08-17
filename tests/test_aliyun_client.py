@@ -72,12 +72,12 @@ async def test_fetch_retries_throttling_then_reraises():
 
 
 def test_fetcher_registry_covers_p1_types():
-    assert set(_FETCHERS) == {
-        "aliyun_ecs",
-        "aliyun_vpc",
-        "aliyun_vswitch",
-        "aliyun_security_group",
-    }
+    # Subset assertion so the test states coverage intent without going stale
+    # as new adapters register (eip/clb/nlb/nat_gateway/oss landed after P1).
+    assert {
+        "aliyun_ecs", "aliyun_vpc", "aliyun_vswitch", "aliyun_security_group",
+    } <= set(_FETCHERS)
+    assert all(callable(f) for f in _FETCHERS.values())
 
 
 async def test_adapter_dispatch_unimplemented_type_raises():

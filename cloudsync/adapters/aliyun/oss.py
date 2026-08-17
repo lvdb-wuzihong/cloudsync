@@ -1,11 +1,11 @@
-"""Aliyun OSS adapter: ListBuckets + per-bucket enrichment (oss2 SDK).
+"""Aliyun OSS adapter: ListBuckets + per-bucket enrichment (OSS 2.0 SDK).
 
 OSS is a global service: ListBuckets returns every bucket of the account
 across all regions, so the accounts.yaml region scope does NOT apply here
-(each bucket carries its own Location). The oss2 SDK is synchronous and not
-tea-based, hence a dedicated fetch wrapper mapping oss2 exceptions onto the
-engine hierarchy with the same discipline: throttling retried, auth never
-retried, everything else aborts the round (no partial sets for the diff).
+(each bucket carries its own region/Location). The v2 SDK ships a native
+async client (aio.AsyncClient); ServiceError is normalized onto the engine
+hierarchy with the same discipline as client.py: throttling retried, auth
+never retried, everything else aborts the round (no partial sets for diff).
 
 Per-bucket enrichment: GetBucketInfo (acl / redundancy / versioning /
 endpoints), GetBucketStat (storage usage), GetBucketLifecycle (rules;
@@ -16,13 +16,15 @@ endpoint / intranet_endpoint / used_size_gb / lifecycle_rules).
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 from typing import TYPE_CHECKING, Any
 
-import oss2
-from oss2.exceptions import NoSuchLifecycle, OssError
+from alibabacloud_oss_v2 import Config
+from alibabacloud_oss_v2 import models as oss_models
+from alibabacloud_oss_v2.aio import AsyncClient
+from alibabacloud_oss_v2.credentials import StaticCredentialsProvider
+from alibabacloud_oss_v2.exceptions import ServiceError
 
 from cloudsync.adapters.aliyun.client import PROVIDER
 from cloudsync.core.exceptions import (
@@ -47,7 +49,7 @@ API_NAME = "ListBuckets"
 PAGE_SIZE = 100  # ListBuckets max_keys
 SERVICE_REGION = "cn-hangzhou"  # ListBuckets is global; any region endpoint works
 
-# oss2 error codes normalized to AUTH_FAILED (mirrors client.py for tea SDKs)
+# v2 ServiceError codes normalized to AUTH_FAILED (mirrors client.py)
 _AUTH_ERROR_CODES = {
     "InvalidAccessKeyId",
     "SecurityTokenExpired",
@@ -56,12 +58,12 @@ _AUTH_ERROR_CODES = {
 }
 
 
-def map_oss_exception(exc: OssError) -> AdapterError:
-    """Normalize an oss2 error into the engine hierarchy."""
-    detail = f"code={exc.code} status={exc.status} message={exc.message}"
-    if exc.code in _AUTH_ERROR_CODES or exc.status in (401, 403):
+def map_oss_exception(exc: ServiceError) -> AdapterError:
+    """Normalize a v2 SDK service error into the engine hierarchy."""
+    detail = f"code={exc.code} status={exc.status_code} message={exc.message}"
+    if exc.code in _AUTH_ERROR_CODES or exc.status_code in (401, 403):
         return AuthFailedError(PROVIDER, detail)
-    if exc.code == "TooManyRequests" or exc.status == 429:
+    if exc.code == "TooManyRequests" or exc.status_code == 429:
         return RateLimitError(PROVIDER, detail)
     return AdapterError(PROVIDER, detail)
 
@@ -73,10 +75,10 @@ async def fetch_oss(
     account: AccountConfig,
     api: str,
 ) -> Any:
-    """Run one synchronous oss2 call off the event loop with throttling retries."""
+    """Run one v2 SDK async call with throttling retries and error mapping."""
     try:
-        return await asyncio.to_thread(call)
-    except OssError as exc:
+        return await call()
+    except ServiceError as exc:
         mapped = map_oss_exception(exc)
         if isinstance(mapped, RateLimitError):
             logger.warning("Cloud API throttled, will retry",
@@ -85,19 +87,18 @@ async def fetch_oss(
         raise mapped from exc
 
 
-def build_service(account: AccountConfig) -> oss2.Service:
-    """Account-level OSS service handle for the global ListBuckets call."""
+def build_client(account: AccountConfig, region: str) -> AsyncClient:
+    """Region-bound async OSS client from the account's static credentials."""
     if not account.access_key_id or not account.access_key_secret:
         raise CredentialError("missing access_key_id/access_key_secret")
-    auth = oss2.Auth(account.access_key_id, account.access_key_secret)
-    return oss2.Service(auth, f"https://oss-{SERVICE_REGION}.aliyuncs.com")
-
-
-def _build_bucket(account: AccountConfig, raw: Any) -> oss2.Bucket:
-    """Bucket handle bound to the bucket's own region endpoint."""
-    auth = oss2.Auth(account.access_key_id, account.access_key_secret)
-    location = raw.location or f"oss-{SERVICE_REGION}"
-    return oss2.Bucket(auth, f"https://{location}.aliyuncs.com", raw.name)
+    config = Config(
+        credentials_provider=StaticCredentialsProvider(
+            access_key_id=account.access_key_id,
+            access_key_secret=account.access_key_secret,
+        ),
+        region=region,
+    )
+    return AsyncClient(config)
 
 
 def _extract_region(location: str | None) -> str:
@@ -106,7 +107,7 @@ def _extract_region(location: str | None) -> str:
 
 
 def _normalize_lifecycle_rules(rules: list[Any]) -> list[dict[str, Any]]:
-    """LifecycleRule objects -> deterministic dicts (stable hash)."""
+    """v2 LifecycleRule objects -> deterministic dicts (stable hash)."""
     normalized = []
     for rule in rules:
         entry: dict[str, Any] = {
@@ -117,17 +118,17 @@ def _normalize_lifecycle_rules(rules: list[Any]) -> list[dict[str, Any]]:
         if rule.expiration is not None:
             entry["expiration"] = {k: v for k, v in {
                 "days": rule.expiration.days,
-                "date": rule.expiration.date,
                 "created_before_date": rule.expiration.created_before_date,
-                "expired_object_delete_marker": rule.expiration.expired_object_delete_marker,
+                "expired_object_delete_marker":
+                    rule.expiration.expired_object_delete_marker,
             }.items() if v is not None}
-        if rule.storage_transitions:
-            entry["storage_transitions"] = sorted(
+        if rule.transitions:
+            entry["transitions"] = sorted(
                 ({k: v for k, v in {
                     "days": t.days,
                     "created_before_date": t.created_before_date,
                     "storage_class": t.storage_class,
-                }.items() if v is not None} for t in rule.storage_transitions),
+                }.items() if v is not None} for t in rule.transitions),
                 key=str,
             )
         normalized.append({k: v for k, v in entry.items() if v is not None})
@@ -150,14 +151,12 @@ def map_oss(
     attributes: dict[str, Any] = {
         # 字段 code 对齐 CMDB 模型定义
         "storage_class": getattr(raw, "storage_class", None),
-        "endpoint": None,
-        "intranet_endpoint": None,
     }
     if info is not None:
         attributes.update({
             "acl": info.acl,
             "redundancy_type": info.data_redundancy_type or None,
-            "versioning": (info.versioning_status or "").lower() == "enabled",
+            "versioning": (info.versioning or "").lower() == "enabled",
             "endpoint": info.extranet_endpoint or None,
             "intranet_endpoint": info.intranet_endpoint or None,
         })
@@ -173,7 +172,7 @@ def map_oss(
         provider_id=raw.name,  # bucket name is the globally unique id
         cloud_account=account_id,
         name=raw.name,
-        region=_extract_region(getattr(raw, "region", None) or raw.location),
+        region=getattr(raw, "region", None) or _extract_region(raw.location),
         zone="",
         status=normalize_status("available"),  # buckets have no status; alive = running
         attributes=attributes,
@@ -183,68 +182,85 @@ def map_oss(
     )
 
 
-async def _bucket_info(account: AccountConfig, bucket: oss2.Bucket) -> Any:
-    """GetBucketInfo: acl / redundancy / versioning / endpoints.
-
-    The SDK wraps the BucketInfo object inside result.bucket.
-    """
-    response = await fetch_oss(
-        lambda: bucket.get_bucket_info(), account=account, api="GetBucketInfo",
+async def _bucket_info(account: AccountConfig, client: AsyncClient, name: str) -> Any:
+    """GetBucketInfo: acl / redundancy / versioning / endpoints."""
+    result = await fetch_oss(
+        lambda: client.get_bucket_info(oss_models.GetBucketInfoRequest(bucket=name)),
+        account=account, api="GetBucketInfo",
     )
-    return response.bucket
+    return result.bucket_info
 
 
-async def _bucket_storage_bytes(account: AccountConfig, bucket: oss2.Bucket) -> int:
+async def _bucket_storage_bytes(
+    account: AccountConfig, client: AsyncClient, name: str
+) -> int | None:
     """GetBucketStat: current storage usage in bytes."""
-    response = await fetch_oss(
-        lambda: bucket.get_bucket_stat(), account=account, api="GetBucketStat",
+    result = await fetch_oss(
+        lambda: client.get_bucket_stat(oss_models.GetBucketStatRequest(bucket=name)),
+        account=account, api="GetBucketStat",
     )
-    return response.storage_size
-
-
-def _lifecycle_or_empty(bucket: oss2.Bucket) -> Any:
-    """GetBucketLifecycle; NoSuchLifecycle is benign (bucket has no rules)."""
-    try:
-        return bucket.get_bucket_lifecycle()
-    except NoSuchLifecycle:
-        return None
+    return result.storage
 
 
 async def _bucket_lifecycle(
-    account: AccountConfig, bucket: oss2.Bucket
+    account: AccountConfig, client: AsyncClient, name: str
 ) -> list[dict[str, Any]]:
     """Fetch + normalize lifecycle rules; empty when none configured."""
-    response = await fetch_oss(
-        lambda: _lifecycle_or_empty(bucket), account=account,
-        api="GetBucketLifecycle",
-    )
-    if response is None:
+    try:
+        result = await fetch_oss(
+            lambda: client.get_bucket_lifecycle(
+                oss_models.GetBucketLifecycleRequest(bucket=name)
+            ),
+            account=account, api="GetBucketLifecycle",
+        )
+    except AdapterError as exc:
+        # NoSuchLifecycle is benign: the bucket simply has no rules
+        cause = exc.__cause__
+        if isinstance(cause, ServiceError) and cause.code == "NoSuchLifecycle":
+            return []
+        raise
+    config = result.lifecycle_configuration
+    if config is None or not config.rules:
         return []
-    return _normalize_lifecycle_rules(response.rules)
+    return _normalize_lifecycle_rules(config.rules)
 
 
 async def list_oss(account: AccountConfig) -> AsyncIterator[NormalizedResource]:
-    """Fetch all buckets of the account (global, region scope not applicable)."""
+    """Fetch all buckets of the account (global; region scope not applicable)."""
     started = time.perf_counter()
-    service = build_service(account)
+    clients: dict[str, AsyncClient] = {}
+
+    def client_for(region: str) -> AsyncClient:
+        """One async client per region, reused across buckets, closed at end."""
+        if region not in clients:
+            clients[region] = build_client(account, region)
+        return clients[region]
+
     count = 0
-    marker = ""
-    while True:
-        result = await fetch_oss(
-            lambda m=marker: service.list_buckets(marker=m, max_keys=PAGE_SIZE),
-            account=account,
-            api=API_NAME,
-        )
-        for raw in result.buckets:
-            bucket = _build_bucket(account, raw)
-            info = await _bucket_info(account, bucket)
-            storage_bytes = await _bucket_storage_bytes(account, bucket)
-            lifecycle = await _bucket_lifecycle(account, bucket)
-            count += 1
-            yield map_oss(raw, account.account_id, info, storage_bytes, lifecycle)
-        if not result.is_truncated:
-            break
-        marker = result.next_marker
+    try:
+        service = client_for(SERVICE_REGION)
+        marker: str | None = None
+        while True:
+            result = await fetch_oss(
+                lambda m=marker: service.list_buckets(
+                    oss_models.ListBucketsRequest(marker=m, max_keys=PAGE_SIZE)
+                ),
+                account=account, api=API_NAME,
+            )
+            for props in result.buckets or []:
+                region = props.region or _extract_region(props.location)
+                client = client_for(region)
+                info = await _bucket_info(account, client, props.name)
+                storage_bytes = await _bucket_storage_bytes(account, client, props.name)
+                lifecycle = await _bucket_lifecycle(account, client, props.name)
+                count += 1
+                yield map_oss(props, account.account_id, info, storage_bytes, lifecycle)
+            if not result.is_truncated:
+                break
+            marker = result.next_marker
+    finally:
+        for client in clients.values():
+            await client.close()
     duration_ms = (time.perf_counter() - started) * 1000
     logger.info("OSS fetch completed",
                 extra={"provider": PROVIDER, "account": account.account_id,

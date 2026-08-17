@@ -50,7 +50,7 @@ def _normalize_listeners(raw: dict[str, Any]) -> list[dict[str, Any]]:
         .get("ListenerPortAndProtocol") or []
         if item.get("ListenerPort") is not None
     ]
-    listeners.sort(key=lambda l: (l.get("port") or 0, l.get("protocol") or ""))
+    listeners.sort(key=lambda ln: (ln.get("port") or 0, ln.get("protocol") or ""))
     return listeners
 
 
