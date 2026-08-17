@@ -14,6 +14,8 @@ _DEFAULT_MAP: dict[str, str] = {
     "inuse": "running",
     "in-use": "running",
     "stopped": "stopped",
+    "inactive": "stopped",
+    "locked": "stopped",
     "deactivated": "stopped",
     "released": "stopped",
     # maintenance-ish states

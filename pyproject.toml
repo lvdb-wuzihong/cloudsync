@@ -17,6 +17,7 @@ dependencies = [
     "alibabacloud-tea-openapi>=0.3",
     "alibabacloud-ecs20140526>=5.0",
     "alibabacloud-vpc20160428>=4.0",
+    "alibabacloud-slb20140515>=3.0",
 ]
 
 [project.optional-dependencies]

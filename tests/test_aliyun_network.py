@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from cloudsync.adapters.aliyun.clb import map_clb
 from cloudsync.adapters.aliyun.eip import map_eip
 from cloudsync.adapters.aliyun.security_group import _normalize_rule, map_security_group
 from cloudsync.adapters.aliyun.vswitch import map_vswitch
@@ -148,3 +149,60 @@ def test_map_eip_unbound_drops_bind_fields():
     r = map_eip(raw, "acc")
     assert "bind_instance_type" not in r.attributes
     assert "bind_instance_id" not in r.attributes
+
+
+_CLB_RAW = {
+    "LoadBalancerId": "lb-abc",
+    "LoadBalancerName": "web-lb",
+    "RegionId": "cn-hangzhou",
+    "Address": "47.96.2.2",
+    "AddressType": "internet",
+    "LoadBalancerSpec": "slb.s2.small",
+    "LoadBalancerStatus": "active",
+    "PayType": "PayOnDemand",
+    "Tags": {"Tag": [{"TagKey": "env", "TagValue": "prod"}]},
+}
+
+_CLB_ATTR = {
+    "VpcId": "vpc-1",
+    "VSwitchId": "vsw-1",
+    "BackendServers": {"BackendServer": [
+        {"ServerId": "i-1"}, {"ServerId": "i-2"}, {"ServerId": "i-1"},
+    ]},
+    "ListenerPortsAndProtocol": {"ListenerPortAndProtocol": [
+        {"ListenerPort": 443, "ListenerProtocol": "https"},
+        {"ListenerPort": 80, "ListenerProtocol": "http"},
+    ]},
+}
+
+
+def test_map_clb_fields():
+    r = map_clb(_CLB_RAW, "acc", _CLB_ATTR)
+    assert r.resource_type == "aliyun_clb"
+    assert r.provider_id == "lb-abc"
+    assert r.region == "cn-hangzhou"
+    assert r.status == "running"  # active -> running
+    assert r.attributes["address"] == "47.96.2.2"
+    assert r.attributes["address_type"] == "internet"
+    assert r.attributes["spec"] == "slb.s2.small"
+    assert r.attributes["charge_type"] == "postpaid"  # PayOnDemand -> postpaid
+    assert r.attributes["vpc_id"] == "vpc-1"
+    # listeners sorted by port for stable hash
+    assert r.attributes["listeners"] == [
+        {"protocol": "http", "port": 80},
+        {"protocol": "https", "port": 443},
+    ]
+    # backend ids deduped + sorted (internal metadata)
+    assert r.attributes["_backend_ecs_ids"] == ["i-1", "i-2"]
+    assert r.parent_provider_id == "vpc-1"
+    assert r.parent_resource_type == "aliyun_vpc"
+
+
+def test_map_clb_without_attribute():
+    raw = dict(_CLB_RAW, PayType="PrePay")
+    r = map_clb(raw, "acc")
+    assert r.attributes["charge_type"] == "prepaid"
+    assert r.attributes["listeners"] == []
+    assert "_backend_ecs_ids" not in r.attributes
+    assert "vpc_id" not in r.attributes
+    assert r.parent_provider_id is None
