@@ -1,0 +1,69 @@
+"""Tests for aliyun OSS bucket mapping (oss2 SDK objects simulated)."""
+
+from __future__ import annotations
+
+from types import SimpleNamespace
+
+from cloudsync.adapters.aliyun.oss import map_oss
+
+_OSS_RAW = SimpleNamespace(
+    name="web-bucket",
+    location="oss-cn-hangzhou",
+    region="cn-hangzhou",
+    storage_class="Standard",
+    creation_date="2026-01-01T00:00:00.000Z",
+)
+
+_OSS_INFO = SimpleNamespace(
+    acl="private",
+    data_redundancy_type="LRS",
+    versioning_status="Enabled",
+    extranet_endpoint="web-bucket.oss-cn-hangzhou.aliyuncs.com",
+    intranet_endpoint="web-bucket.oss-cn-hangzhou-internal.aliyuncs.com",
+)
+
+
+def test_map_oss_fields():
+    lifecycle = [{"id": "rule-1", "prefix": "logs/", "status": "Enabled",
+                  "expiration": {"days": 30}}]
+    r = map_oss(_OSS_RAW, "acc", _OSS_INFO, storage_bytes=5 * 1024 ** 3,
+                lifecycle_rules=lifecycle)
+    assert r.resource_type == "aliyun_oss"
+    assert r.provider_id == "web-bucket"  # bucket name is the id
+    assert r.name == "web-bucket"
+    assert r.region == "cn-hangzhou"
+    assert r.status == "running"
+    assert r.attributes["acl"] == "private"
+    assert r.attributes["storage_class"] == "Standard"
+    assert r.attributes["redundancy_type"] == "LRS"
+    assert r.attributes["versioning"] is True  # Enabled -> True
+    assert r.attributes["endpoint"] == "web-bucket.oss-cn-hangzhou.aliyuncs.com"
+    assert r.attributes["intranet_endpoint"] == \
+        "web-bucket.oss-cn-hangzhou-internal.aliyuncs.com"
+    assert r.attributes["used_size_gb"] == 5.0
+    assert r.attributes["lifecycle_rules"] == lifecycle
+    # OSS is owned by the cloud account (belongs_to 账号归属)
+    assert r.parent_provider_id == "acc"
+    assert r.parent_resource_type == "aliyun_account"
+
+
+def test_map_oss_versioning_suspended_is_false():
+    info = SimpleNamespace(**vars(_OSS_INFO), versioning_status="Suspended")
+    r = map_oss(_OSS_RAW, "acc", info)
+    assert r.attributes["versioning"] is False
+
+
+def test_map_oss_without_enrichment():
+    r = map_oss(_OSS_RAW, "acc")
+    assert r.attributes["storage_class"] == "Standard"
+    assert "acl" not in r.attributes
+    assert "versioning" not in r.attributes
+    assert "used_size_gb" not in r.attributes
+    assert "lifecycle_rules" not in r.attributes
+    assert r.parent_provider_id == "acc"
+
+
+def test_map_oss_region_from_location_when_region_missing():
+    raw = SimpleNamespace(**vars(_OSS_RAW), region=None)
+    r = map_oss(raw, "acc")
+    assert r.region == "cn-hangzhou"  # oss- prefix stripped from Location
