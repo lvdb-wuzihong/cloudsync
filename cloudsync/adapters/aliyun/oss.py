@@ -18,6 +18,8 @@ operations, bridged with asyncio.to_thread inside fetch_oss - the same
 pattern as the tea-based adapters (client.py fetch). The aio AsyncClient
 is deliberately NOT used: its operation surface is incomplete (1.3.x has
 no lifecycle ops), which is exactly the drift risk the sync client avoids.
+Service failures surface as OperationError wrapping ServiceError; fetch_oss
+unwraps before normalizing onto the engine hierarchy.
 """
 
 from __future__ import annotations
@@ -31,7 +33,7 @@ from alibabacloud_oss_v2 import Config
 from alibabacloud_oss_v2 import models as oss_models
 from alibabacloud_oss_v2.client import Client
 from alibabacloud_oss_v2.credentials import StaticCredentialsProvider
-from alibabacloud_oss_v2.exceptions import ServiceError
+from alibabacloud_oss_v2.exceptions import OperationError, ServiceError
 
 from cloudsync.adapters.aliyun.client import PROVIDER
 from cloudsync.core.exceptions import (
@@ -75,6 +77,15 @@ def map_oss_exception(exc: ServiceError) -> AdapterError:
     return AdapterError(PROVIDER, detail)
 
 
+def unwrap_service_error(exc: BaseException | None) -> ServiceError | None:
+    """Return the inner ServiceError; invoke_operation wraps it in OperationError."""
+    if isinstance(exc, ServiceError):
+        return exc
+    if isinstance(exc, OperationError) and isinstance(exc.unwrap(), ServiceError):
+        return exc.unwrap()
+    return None
+
+
 @cloud_api_retry
 async def fetch_oss(
     call: Callable[[], Any],
@@ -85,8 +96,11 @@ async def fetch_oss(
     """Run one sync v2 SDK call off the event loop with retries and mapping."""
     try:
         return await asyncio.to_thread(call)
-    except ServiceError as exc:
-        mapped = map_oss_exception(exc)
+    except (OperationError, ServiceError) as exc:
+        service = unwrap_service_error(exc)
+        if service is None:
+            raise AdapterError(PROVIDER, f"operation failed: {exc}") from exc
+        mapped = map_oss_exception(service)
         if isinstance(mapped, RateLimitError):
             logger.warning("Cloud API throttled, will retry",
                            extra={"provider": PROVIDER, "account": account.account_id,
@@ -226,8 +240,8 @@ async def _bucket_lifecycle(
         )
     except AdapterError as exc:
         # NoSuchLifecycle is benign: the bucket simply has no rules
-        cause = exc.__cause__
-        if isinstance(cause, ServiceError) and cause.code == "NoSuchLifecycle":
+        inner = unwrap_service_error(exc.__cause__) if exc.__cause__ else None
+        if inner is not None and inner.code == "NoSuchLifecycle":
             return []
         raise
     config = result.lifecycle_configuration

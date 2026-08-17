@@ -1,10 +1,26 @@
-"""Tests for aliyun OSS bucket mapping (oss2 SDK objects simulated)."""
+"""Tests for aliyun OSS bucket mapping (alibabacloud_oss_v2 shapes simulated)."""
 
 from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+from alibabacloud_oss_v2.exceptions import OperationError, ServiceError
+
+import cloudsync.adapters.aliyun.oss as oss_mod
 from cloudsync.adapters.aliyun.oss import map_oss
+from cloudsync.core.accounts import AccountConfig
+from cloudsync.core.exceptions import AdapterError, AuthFailedError
+
+
+def _service_error(code: str, status: int) -> ServiceError:
+    """ServiceError carries all fmt kwargs (mirrors SDK construction)."""
+    return ServiceError(code=code, status_code=status, request_id="req-1",
+                        message="boom", ec="", timestamp="", request_target="")
+
+
+def _account() -> AccountConfig:
+    return AccountConfig(provider="aliyun", account_id="acc")
 
 _OSS_RAW = SimpleNamespace(
     name="web-bucket",
@@ -67,6 +83,57 @@ def test_map_oss_region_from_location_when_region_missing():
     raw = SimpleNamespace(**{**vars(_OSS_RAW), "region": None})
     r = map_oss(raw, "acc")
     assert r.region == "cn-hangzhou"  # oss- prefix stripped from Location
+
+
+async def test_fetch_oss_unwraps_operation_error_to_auth_failed():
+    """invoke_operation wraps ServiceError in OperationError; normalize the inner."""
+    op = OperationError(name="GetBucketInfo", error=_service_error("AccessDenied", 403))
+
+    def boom():
+        raise op
+
+    with pytest.raises(AuthFailedError):
+        await oss_mod.fetch_oss(boom, account=_account(), api="GetBucketInfo")
+
+
+async def test_fetch_oss_non_service_operation_error_maps_to_adapter_error():
+    op = OperationError(name="ListBuckets", error=ConnectionError("net down"))
+
+    def boom():
+        raise op
+
+    with pytest.raises(AdapterError):
+        await oss_mod.fetch_oss(boom, account=_account(), api="ListBuckets")
+
+
+async def test_bucket_lifecycle_no_such_lifecycle_is_benign(monkeypatch):
+    """404 NoSuchLifecycle (wrapped in OperationError) means no rules, not failure."""
+    op = OperationError(name="GetBucketLifecycle",
+                        error=_service_error("NoSuchLifecycle", 404))
+
+    async def fake_fetch(call, *, account, api):
+        try:
+            raise op
+        except OperationError as exc:
+            raise AdapterError("aliyun", "wrapped") from exc
+
+    monkeypatch.setattr(oss_mod, "fetch_oss", fake_fetch)
+    assert await oss_mod._bucket_lifecycle(_account(), None, "b") == []
+
+
+async def test_bucket_lifecycle_other_api_error_reraises(monkeypatch):
+    op = OperationError(name="GetBucketLifecycle",
+                        error=_service_error("InternalError", 500))
+
+    async def fake_fetch(call, *, account, api):
+        try:
+            raise op
+        except OperationError as exc:
+            raise AdapterError("aliyun", "wrapped") from exc
+
+    monkeypatch.setattr(oss_mod, "fetch_oss", fake_fetch)
+    with pytest.raises(AdapterError):
+        await oss_mod._bucket_lifecycle(_account(), None, "b")
 
 
 def test_sdk_surface_covers_required_ops():
