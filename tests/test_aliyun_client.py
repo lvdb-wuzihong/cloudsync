@@ -83,7 +83,7 @@ def test_fetcher_registry_covers_p1_types():
 async def test_adapter_dispatch_unimplemented_type_raises():
     adapter = AliyunAdapter()
     account = AccountConfig(provider="aliyun", account_id="acc")
-    agen = adapter.list_resources(account, "aliyun_rds")
+    agen = adapter.list_resources(account, "aliyun_slb")  # not in _FETCHERS
     with pytest.raises(NotImplementedError):
         await agen.__anext__()
 

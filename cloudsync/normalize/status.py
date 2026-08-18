@@ -16,6 +16,7 @@ _DEFAULT_MAP: dict[str, str] = {
     "deploying": "maintenance",  # aliyun AMQP
     "inuse": "running",
     "in-use": "running",
+    "in_use": "running",  # aliyun disk
     "stopped": "stopped",
     "inactive": "stopped",
     "locked": "stopped",

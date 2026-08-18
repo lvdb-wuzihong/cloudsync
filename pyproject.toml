@@ -25,6 +25,8 @@ dependencies = [
     "alibabacloud-amqp-open20191212>=1.0",
     # OSS uses the official 2.0 SDK (sync Client, typed models); oss2 is legacy
     "alibabacloud-oss-v2>=1.3",
+    # GCP (P3: compute tier; sqladmin package lands with gcp_cloudsql)
+    "google-cloud-compute>=1.19",
 ]
 
 [project.optional-dependencies]

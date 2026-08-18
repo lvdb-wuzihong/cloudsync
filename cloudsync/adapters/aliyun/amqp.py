@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from alibabacloud_amqp_open20191212 import models as amqp_models
@@ -77,7 +77,7 @@ def _ms_to_iso(value: Any) -> str | None:
         return None
     if ms <= 0:
         return None
-    return datetime.fromtimestamp(ms / 1000, tz=timezone.utc).strftime(
+    return datetime.fromtimestamp(ms / 1000, tz=UTC).strftime(
         "%Y-%m-%dT%H:%M:%SZ"
     )
 
