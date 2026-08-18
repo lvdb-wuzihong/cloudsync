@@ -105,6 +105,13 @@ async def fetch_oss(
             logger.warning("Cloud API throttled, will retry",
                            extra={"provider": PROVIDER, "account": account.account_id,
                                   "resource_type": RESOURCE_TYPE, "api": api})
+        elif service.code != "NoSuchLifecycle":
+            # 鉴权/其他 API 失败不再静默上抛，引擎日志之外保留一层现场细节
+            # （NoSuchLifecycle 是良性错误：桶无生命周期规则，调用方按空处理）
+            logger.error("Cloud API call failed",
+                         extra={"provider": PROVIDER, "account": account.account_id,
+                                "resource_type": RESOURCE_TYPE, "api": api,
+                                "error_code": mapped.error_code, "detail": mapped.message})
         raise mapped from exc
 
 

@@ -126,9 +126,10 @@ class SyncEngine:
             try:
                 await self._run_round(task, started)
             except CloudSyncError as e:
-                logger.error("Sync task failed with business error",
+                # message 带进日志正文，非结构化日志环境也能直接看到细节
+                logger.error("Sync task failed with business error: %s", e.message,
                              extra={"task_id": task.id, "provider": task.provider,
-                                    "error_code": e.error_code})
+                                    "error_code": e.error_code, "detail": e.message})
             except Exception:
                 logger.exception("Sync task failed with unexpected error",
                                  extra={"task_id": task.id, "provider": task.provider})

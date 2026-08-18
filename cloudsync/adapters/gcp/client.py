@@ -188,4 +188,17 @@ async def fetch(
             logger.warning("Cloud API throttled, will retry",
                            extra={"provider": PROVIDER, "account": account.account_id,
                                   "resource_type": resource_type, "api": api})
+        else:
+            # 鉴权/其他 API 失败不再静默上抛，引擎日志之外保留一层现场细节
+            logger.error("Cloud API call failed",
+                         extra={"provider": PROVIDER, "account": account.account_id,
+                                "resource_type": resource_type, "api": api,
+                                "error_code": mapped.error_code, "detail": mapped.message})
+        raise mapped from exc
+    except Exception as exc:
+        mapped = map_sdk_exception(exc, resource_type)
+        logger.error("Cloud API call failed with non-API exception",
+                     extra={"provider": PROVIDER, "account": account.account_id,
+                            "resource_type": resource_type, "api": api,
+                            "detail": mapped.message})
         raise mapped from exc
