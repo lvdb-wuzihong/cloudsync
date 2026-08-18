@@ -22,8 +22,10 @@ from google.cloud.compute_v1 import (
     DisksClient,
     FirewallsClient,
     InstancesClient,
+    MachineTypesClient,
     NetworksClient,
     SubnetworksClient,
+    ZonesClient,
 )
 from google.oauth2 import service_account
 
@@ -111,6 +113,26 @@ def build_subnetworks_client(account: AccountConfig) -> SubnetworksClient:
 def build_firewalls_client(account: AccountConfig) -> FirewallsClient:
     """Compute Engine firewalls client for one account."""
     return FirewallsClient(credentials=build_credentials(account))
+
+
+def build_zones_client(account: AccountConfig) -> ZonesClient:
+    """Compute Engine zones client for one account (region scope discovery)."""
+    return ZonesClient(credentials=build_credentials(account))
+
+
+def build_machine_types_client(account: AccountConfig) -> MachineTypesClient:
+    """Compute Engine machine types client for one account (cpu/memory specs)."""
+    return MachineTypesClient(credentials=build_credentials(account))
+
+
+def last_segment(url: str) -> str:
+    """Last path segment of a GCP resource URL (or the value itself).
+
+    Compute fields like machine_type / network / subnetwork / disk source are
+    full URLs (.../projects/p/regions/r/subnetworks/name); model fields and
+    edge matching need the bare resource name.
+    """
+    return url.rstrip("/").rsplit("/", 1)[-1] if url else ""
 
 
 def map_sdk_exception(exc: Exception, resource_type: str) -> CloudSyncError:

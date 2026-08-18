@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from cloudsync.adapters.base import register_adapter
+from cloudsync.adapters.gcp.compute import list_compute
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable
@@ -22,7 +23,9 @@ PROVIDER = "gcp"
 #   gcp_vpc / gcp_subnet / gcp_firewall / gcp_disk  (network tier, 1h)
 
 # resource_type (model code) -> fetcher coroutine; grows per resource module
-_FETCHERS: dict[str, Fetcher] = {}
+_FETCHERS: dict[str, Fetcher] = {
+    "gcp_compute": list_compute,
+}
 
 
 class GcpAdapter:
