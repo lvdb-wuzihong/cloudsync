@@ -15,6 +15,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
+from alibabacloud_amqp_open20191212.client import Client as AmqpClient
 from alibabacloud_ecs20140526.client import Client as EcsClient
 from alibabacloud_nas20170626.client import Client as NasClient
 from alibabacloud_nlb20220430.client import Client as NlbClient
@@ -69,6 +70,11 @@ def build_openapi_config(account: AccountConfig, region: str) -> OpenApiConfig:
 def build_ecs_client(account: AccountConfig, region: str) -> EcsClient:
     """ECS product client for one account+region."""
     return EcsClient(build_openapi_config(account, region))
+
+
+def build_amqp_client(account: AccountConfig, region: str) -> AmqpClient:
+    """AMQP (RabbitMQ) product client for one account+region."""
+    return AmqpClient(build_openapi_config(account, region))
 
 
 def build_vpc_client(account: AccountConfig, region: str) -> VpcClient:

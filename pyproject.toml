@@ -22,6 +22,7 @@ dependencies = [
     "alibabacloud-nas20170626>=2.0",
     "alibabacloud-rds20140815>=3.0",
     "alibabacloud-r-kvstore20150101>=6.0",
+    "alibabacloud-amqp-open20191212>=1.0",
     # OSS uses the official 2.0 SDK (sync Client, typed models); oss2 is legacy
     "alibabacloud-oss-v2>=1.3",
 ]
