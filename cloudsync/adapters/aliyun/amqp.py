@@ -1,10 +1,14 @@
-"""Aliyun AMQP (RabbitMQ) adapter: ListInstances across configured regions.
+"""Aliyun AMQP (RabbitMQ) adapter: ListInstances + per-instance GetInstance.
 
-The AMQP product SDK has no region-discovery API and ListInstances carries no
-region_id parameter (region scope comes from the client endpoint), so when
-accounts.yaml leaves the scope empty we borrow the ECS DescribeRegions
-discovery. Pagination is NextToken-based. SupportNode / port are not returned
-by any AMQP API and stay unset (never fabricated).
+The list API's response surface is incomplete in practice (VswitchIds etc.
+may be absent), so each instance is enriched with GetInstance — the
+authoritative per-instance source (same N+1 pattern as RDS net info;
+AMQP instance counts are small). The AMQP product SDK has no
+region-discovery API and ListInstances carries no region_id parameter
+(region scope comes from the client endpoint), so when accounts.yaml leaves
+the scope empty we borrow the ECS DescribeRegions discovery. Pagination is
+NextToken-based. SupportNode / port are not returned by any AMQP API and
+stay unset (never fabricated).
 
 Field codes align with the CMDB model aliyun_amqp (instance_type /
 max_queues / max_tps / endpoint / charge_type / expired_at / vswitch_id).
@@ -148,6 +152,21 @@ async def _discover_regions(account: AccountConfig) -> list[str]:
     ]
 
 
+async def _fetch_instance(
+    account: AccountConfig, client: AmqpClient, instance_id: str
+) -> dict[str, Any]:
+    """GetInstance: authoritative per-instance detail (VswitchIds etc.)."""
+    response = await fetch(
+        lambda: client.get_instance(
+            amqp_models.GetInstanceRequest(instance_id=instance_id)
+        ),
+        account=account,
+        resource_type=RESOURCE_TYPE,
+        api="GetInstance",
+    )
+    return response.body.to_map().get("Data") or {}
+
+
 async def _list_region(
     account: AccountConfig, client: AmqpClient, region: str
 ) -> AsyncIterator[NormalizedResource]:
@@ -167,7 +186,13 @@ async def _list_region(
         data = body.get("Data") or {}
         items = data.get("Instances") or []
         for item in items:
-            yield map_amqp(item, account.account_id, region)
+            instance_id = item.get("InstanceId") or ""
+            # 列表接口响应面不全（VswitchIds 等可能缺失），详情为准
+            detail = (
+                await _fetch_instance(account, client, instance_id)
+                if instance_id else {}
+            )
+            yield map_amqp({**item, **detail}, account.account_id, region)
         token = data.get("NextToken")
         if not token or not items:
             break
