@@ -28,28 +28,6 @@ type Fetcher = Callable[[AccountConfig], AsyncIterator[NormalizedResource]]
 
 PROVIDER = "aliyun"
 
-# Default resource set when cmdb_sync_tasks.resource_types is empty
-# (design doc section 5.2 frequency tiers).
-DEFAULT_RESOURCE_TYPES = [
-    # compute tier (5-10min) + account root node
-    "aliyun_account",
-    "aliyun_ecs",
-    # database/storage tier (30min)
-    "aliyun_rds",
-    "aliyun_redis",
-    "aliyun_oss",
-    # network tier (1h)
-    "aliyun_vpc",
-    "aliyun_vswitch",
-    "aliyun_security_group",
-    "aliyun_clb",
-    "aliyun_nlb",
-    "aliyun_nat_gateway",
-    "aliyun_eip",
-    "aliyun_disk",
-    "aliyun_nas",
-]
-
 
 # resource_type (model code) -> fetcher coroutine; grows per phase
 _FETCHERS: dict[str, Fetcher] = {
@@ -74,8 +52,12 @@ class AliyunAdapter:
     provider: str = PROVIDER
 
     def default_resource_types(self) -> list[str]:
-        """Return the provider default resource type set."""
-        return list(DEFAULT_RESOURCE_TYPES)
+        """Default set when cmdb_sync_tasks.resource_types is empty.
+
+        Derived from the registered fetchers so the default set can never
+        contain an unimplemented type (empty whitelist = all implemented).
+        """
+        return sorted(_FETCHERS)
 
     async def list_resources(
         self, account: AccountConfig, resource_type: str
