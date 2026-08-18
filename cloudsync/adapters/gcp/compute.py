@@ -8,8 +8,11 @@ leaks instances from other regions.
 
 Enrichment (N+1, cached): MachineTypes.get supplies cpu / memory_gb (the
 instance resource only carries the machine type URL), and the boot disk
-source image name yields a best-effort os label. Machine specs are cached per
-(zone, machine type) since fleets typically share a handful of shapes.
+yields a best-effort os label: the attached disk's licenses carry OS-family
+project URLs (ubuntu-os-cloud / windows-cloud / ...); initialize_params.
+source_image is the fallback (often empty on live instances). Machine specs
+are cached per (zone, machine type) since fleets typically share a handful
+of shapes.
 
 Fetching rules identical to the other adapters: raise on any failure (never
 yield a partial set) so the engine aborts the round without emitting deletes.
@@ -48,8 +51,26 @@ logger = logging.getLogger("cloudsync.adapters.gcp.compute")
 RESOURCE_TYPE = "gcp_compute"
 PAGE_SIZE = 500  # AggregatedList upper bound
 
-# Best-effort os label from the boot disk source image name (GCE exposes no
-# dedicated OS field); matched in order, first hit wins, else left unset.
+# Boot-disk license URL project segment -> os label. Licenses are attached by
+# the OS publisher (ubuntu-os-cloud, windows-cloud, ...), making them the
+# most reliable OS signal on live instances.
+_OS_PROJECT_MAP = {
+    "ubuntu-os-cloud": "ubuntu",
+    "ubuntu-os-pro-cloud": "ubuntu",
+    "debian-cloud": "debian",
+    "windows-cloud": "windows",
+    "centos-cloud": "centos",
+    "rhel-cloud": "rhel",
+    "rhel-sap-cloud": "rhel",
+    "rocky-linux-cloud": "rocky-linux",
+    "almalinux-cloud": "almalinux",
+    "suse-cloud": "sles",
+    "suse-sap-cloud": "sles",
+    "cos-cloud": "cos",
+    "fedora-coreos-cloud": "fedora-coreos",
+}
+
+# Fallback: keyword match on the source image name (initialize_params).
 _OS_KEYWORDS = (
     ("windows", "windows"),
     ("ubuntu", "ubuntu"),
@@ -63,14 +84,30 @@ _OS_KEYWORDS = (
 )
 
 
-def _guess_os(source_image: str | None) -> str | None:
-    """Derive an os label from the boot disk source image URL/name."""
-    if not source_image:
+def _guess_os(disk: Any) -> str | None:
+    """Derive an os label (with version) from the boot disk.
+
+    The license slug is version-specific (ubuntu-2204-lts,
+    windows-server-2022-dc), so a known OS-publisher project yields the full
+    slug; otherwise fall back to a family-only keyword match on the source
+    image name. Note: AttachedDisk.source points at the disk resource itself
+    and carries no OS information.
+    """
+    if disk is None:
         return None
-    image = last_segment(source_image).lower()
-    for keyword, os_name in _OS_KEYWORDS:
-        if keyword in image:
-            return os_name
+    for license_url in disk.licenses:
+        parts = license_url.split("/")
+        if "projects" in parts:
+            project = parts[parts.index("projects") + 1]
+            if project in _OS_PROJECT_MAP:
+                return last_segment(license_url).lower() or _OS_PROJECT_MAP[project]
+    params = getattr(disk, "initialize_params", None)
+    source_image = getattr(params, "source_image", "") if params is not None else ""
+    if source_image:
+        image = last_segment(source_image).lower()
+        for keyword, os_name in _OS_KEYWORDS:
+            if keyword in image:
+                return os_name
     return None
 
 
@@ -207,14 +244,12 @@ async def _enrich(
             if key not in specs_cache:
                 specs_cache[key] = await _machine_specs(mt_client, account, project, zone, mt_name)
             cpu, memory_gb = specs_cache[key]
-        boot_image = next(
-            (disk.source for disk in instance.disks if disk.boot and disk.source), None,
-        )
+        boot_disk = next((disk for disk in instance.disks if disk.boot), None)
         resources.append(map_compute(
             instance, account.account_id,
             zone=zone, region=region,
             machine_type=mt_name, cpu=cpu, memory_gb=memory_gb,
-            os_name=_guess_os(boot_image),
+            os_name=_guess_os(boot_disk),
         ))
     return resources
 

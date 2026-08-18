@@ -90,10 +90,31 @@ def test_map_compute_no_disks_drops_size():
     assert "private_ip" not in r.attributes
 
 
-def test_guess_os_from_image_url():
-    url = "https://www.googleapis.com/compute/v1/projects/ubuntu-os-cloud/global/images/ubuntu-2204-jammy"
-    assert _guess_os(url) == "ubuntu"
-    assert _guess_os("windows-server-2022-dc") == "windows"
-    assert _guess_os("cos-109") == "cos"
-    assert _guess_os("my-custom-image") is None
+def test_guess_os_from_boot_disk_licenses():
+    # licenses 末段带版本号，识别出 OS 家族项目时直接取完整 slug
+    disk = SimpleNamespace(
+        licenses=["https://www.googleapis.com/compute/v1/projects/ubuntu-os-cloud/global/licenses/ubuntu-2204-lts"],
+        initialize_params=SimpleNamespace(source_image=""),
+    )
+    assert _guess_os(disk) == "ubuntu-2204-lts"
+    win = SimpleNamespace(
+        licenses=["https://www.googleapis.com/compute/v1/projects/windows-cloud/global/licenses/windows-server-2022-dc"],
+        initialize_params=SimpleNamespace(source_image=""),
+    )
+    assert _guess_os(win) == "windows-server-2022-dc"
+
+
+def test_guess_os_falls_back_to_source_image():
+    # licenses 无 OS 家族时回退镜像名关键词
+    disk = SimpleNamespace(
+        licenses=["https://www.googleapis.com/compute/v1/projects/my-proj/global/licenses/custom"],
+        initialize_params=SimpleNamespace(
+            source_image="https://www.googleapis.com/compute/v1/projects/p/global/images/cos-109"),
+    )
+    assert _guess_os(disk) == "cos"
+
+
+def test_guess_os_none_when_no_signal():
     assert _guess_os(None) is None
+    disk = SimpleNamespace(licenses=[], initialize_params=SimpleNamespace(source_image=""))
+    assert _guess_os(disk) is None
