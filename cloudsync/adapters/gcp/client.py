@@ -46,8 +46,11 @@ logger = logging.getLogger("cloudsync.adapters.gcp.client")
 
 PROVIDER = "gcp"
 
-# Read-only scope covering Compute Engine resources (GCE/disks/VPC/subnets/firewalls)
-_COMPUTE_SCOPES = ["https://www.googleapis.com/auth/cloud-platform.read-only"]
+# Read-only scope covering Compute Engine resources (GCE/disks/VPC/subnets/firewalls).
+# NOTE: the Compute API rejects cloud-platform.read-only ("insufficient
+# authentication scopes" even with a valid token and enough IAM); it only
+# accepts compute.readonly / compute / cloud-platform.
+_COMPUTE_SCOPES = ["https://www.googleapis.com/auth/compute.readonly"]
 
 # HTTP status codes normalized to RATE_LIMITED (retried with backoff); 503 is
 # included because GCP signals quota exhaustion via RESOURCE_EXHAUSTED/503 too
