@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from cloudsync.adapters.aliyun.account import list_account
 from cloudsync.adapters.aliyun.clb import list_clb
 from cloudsync.adapters.aliyun.disk import list_disk
 from cloudsync.adapters.aliyun.ecs import list_ecs
@@ -31,6 +32,7 @@ PROVIDER = "aliyun"
 
 # resource_type (model code) -> fetcher coroutine; grows per phase
 _FETCHERS: dict[str, Fetcher] = {
+    "aliyun_account": list_account,
     "aliyun_ecs": list_ecs,
     "aliyun_vpc": list_vpc,
     "aliyun_vswitch": list_vswitch,
