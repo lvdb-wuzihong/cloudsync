@@ -7,13 +7,14 @@ from cloudsync.adapters.aliyun.amqp import map_amqp
 _AMQP_RAW = {
     "InstanceId": "amqp-abc",
     "InstanceName": "order mq",
-    "InstanceType": "enterprise",
+    "InstanceType": "ENTERPRISE",
     "Status": "SERVING",
     "MaxQueue": 100,
     "MaxTps": 5000,
     "PrivateEndpoint": "amqp-abc.amqp.aliyuncs.com",
-    "OrderType": "subscription",
-    "ExpireTime": "2026-12-31T16:00Z",
+    "OrderType": "PRE_PAID",
+    # 2026-12-31T16:00:00Z in millisecond epoch (API returns ms)
+    "ExpireTime": 1798732800000,
     "VswitchIds": ["vsw-2", "vsw-1"],
 }
 
@@ -25,26 +26,33 @@ def test_map_amqp_fields():
     assert r.name == "order mq"
     assert r.region == "cn-hangzhou"  # from caller endpoint, items carry none
     assert r.status == "running"  # SERVING -> running
-    assert r.attributes["instance_type"] == "enterprise"
+    assert r.attributes["instance_type"] == "enterprise"  # case-insensitive
     assert r.attributes["max_queues"] == 100
     assert r.attributes["max_tps"] == 5000
     assert r.attributes["endpoint"] == "amqp-abc.amqp.aliyuncs.com"
-    assert r.attributes["charge_type"] == "prepaid"  # subscription -> prepaid
-    assert r.attributes["expired_at"] == "2026-12-31T16:00Z"
+    assert r.attributes["charge_type"] == "prepaid"  # PRE_PAID -> prepaid
+    # ms epoch -> ISO date
+    assert r.attributes["expired_at"] == "2026-12-31T16:00:00Z"
     # first sorted VSwitchId wins
     assert r.attributes["vswitch_id"] == "vsw-1"
     assert r.parent_provider_id == "vsw-1"
     assert r.parent_resource_type == "aliyun_vswitch"
 
 
+def test_map_amqp_instance_type_variants():
+    vip = map_amqp(dict(_AMQP_RAW, InstanceType="VIP"), "acc", "cn-hangzhou")
+    assert vip.attributes["instance_type"] == "platinum"  # VIP = 铂金版
+    sl = map_amqp(dict(_AMQP_RAW, InstanceType="SERVERLESS"), "acc", "cn-hangzhou")
+    assert sl.attributes["instance_type"] == "serverless"
+
+
 def test_map_amqp_postpaid_without_vswitch():
-    raw = dict(_AMQP_RAW, OrderType="payasyougo", VswitchIds=[],
-               InstanceType="unknown-series", PrivateEndpoint="",
+    raw = dict(_AMQP_RAW, OrderType="POST_PAID", VswitchIds=[],
+               PrivateEndpoint="",
                PublicEndpoint="amqp-abc-pub.amqp.aliyuncs.com")
     r = map_amqp(raw, "acc", "cn-hangzhou")
     assert r.attributes["charge_type"] == "postpaid"
     assert "expired_at" not in r.attributes  # postpaid has no expiry
-    assert "instance_type" not in r.attributes  # outside enum set dropped
     assert r.attributes["endpoint"] == "amqp-abc-pub.amqp.aliyuncs.com"
     assert "vswitch_id" not in r.attributes
     assert r.parent_provider_id is None

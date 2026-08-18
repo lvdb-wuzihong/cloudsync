@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from alibabacloud_amqp_open20191212 import models as amqp_models
@@ -42,11 +43,39 @@ API_NAME = "ListInstances"
 PAGE_SIZE = 100  # ListInstances max_results
 DISCOVERY_REGION = "cn-hangzhou"
 
-# Model enum values for instance_type; API values outside this set are dropped
-_INSTANCE_TYPES = {"professional", "enterprise", "platinum"}
+# API InstanceType -> model enum value。
+# 官方值域：PROFESSIONAL / ENTERPRISE / VIP（铂金版）/ SERVERLESS；
+# serverless 需模型枚举扩展 option 后才有意义，未扩展前 consumer 渲染为空。
+# 注意：Edition 是 serverless 部署架构（shared/dedicated），不是实例系列，不作回退。
+_INSTANCE_TYPE_MAP = {
+    "professional": "professional",
+    "enterprise": "enterprise",
+    "vip": "platinum",
+    "serverless": "serverless",
+}
 
 # API OrderType -> model enum value (charge_type options: prepaid / postpaid)
-_CHARGE_TYPE_MAP = {"subscription": "prepaid", "payasyougo": "postpaid"}
+_CHARGE_TYPE_MAP = {
+    "pre_paid": "prepaid",
+    "post_paid": "postpaid",
+    "subscription": "prepaid",
+    "payasyougo": "postpaid",
+}
+
+
+def _ms_to_iso(value: Any) -> str | None:
+    """ExpireTime arrives as a millisecond epoch; model field is date."""
+    if value in (None, "", -1):
+        return None
+    try:
+        ms = int(value)
+    except (TypeError, ValueError):
+        return None
+    if ms <= 0:
+        return None
+    return datetime.fromtimestamp(ms / 1000, tz=timezone.utc).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
 
 
 def _safe_int(value: Any) -> int | None:
@@ -66,18 +95,20 @@ def map_amqp(raw: dict[str, Any], account_id: str, region: str) -> NormalizedRes
     VSwitchId so the consumer can rebuild AMQP -> VSwitch belongs_to edges.
     Items carry no RegionId, so the region comes from the caller's endpoint.
     """
-    instance_type = (raw.get("InstanceType") or raw.get("Edition") or "").lower()
+    instance_type = _INSTANCE_TYPE_MAP.get((raw.get("InstanceType") or "").lower())
     charge_type = _CHARGE_TYPE_MAP.get((raw.get("OrderType") or "").lower())
     vswitch_ids = sorted(raw.get("VswitchIds") or [])
     attributes = {
         # 字段 code 对齐 CMDB 模型定义
-        "instance_type": instance_type if instance_type in _INSTANCE_TYPES else None,
+        "instance_type": instance_type,
         "max_queues": _safe_int(raw.get("MaxQueue")),
         "max_tps": _safe_int(raw.get("MaxTps")),
         "endpoint": raw.get("PrivateEndpoint") or raw.get("PublicEndpoint") or None,
         "charge_type": charge_type,
-        # 仅预付费采集到期时间
-        "expired_at": raw.get("ExpireTime") if charge_type == "prepaid" else None,
+        # ExpireTime 是毫秒时间戳，转 ISO 日期；仅预付费采集
+        "expired_at": _ms_to_iso(raw.get("ExpireTime"))
+        if charge_type == "prepaid" else None,
+        # serverless 实例 API 不返回 VswitchIds（仅创建时填 privateLink 才有），空即真相
         "vswitch_id": vswitch_ids[0] if vswitch_ids else None,
         # support_node / port: AMQP API 不返回，不臆造，留空待人工补充
     }

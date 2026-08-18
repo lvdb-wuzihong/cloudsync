@@ -13,6 +13,7 @@ _DEFAULT_MAP: dict[str, str] = {
     "active": "running",
     "normal": "running",  # aliyun Redis
     "serving": "running",  # aliyun AMQP
+    "deploying": "maintenance",  # aliyun AMQP
     "inuse": "running",
     "in-use": "running",
     "stopped": "stopped",
