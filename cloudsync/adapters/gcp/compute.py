@@ -167,9 +167,10 @@ async def _fetch_scoped(
 ) -> list[tuple[str, str, Any]]:
     """AggregatedList across the project, scoped to the configured zones."""
     client = build_instances_client(account)
+    # max_results 只在请求消息里（方法扁平 kwarg 仅 project），dict 形式传参
     pager = await fetch(
         lambda: client.aggregated_list(
-            project=project_of(account), max_results=PAGE_SIZE,
+            {"project": project_of(account), "max_results": PAGE_SIZE},
         ),
         account=account,
         resource_type=RESOURCE_TYPE,
