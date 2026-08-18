@@ -162,11 +162,12 @@ async def _discover_regions(account: AccountConfig, client: RdsClient) -> list[s
         api="DescribeRegions",
     )
     body = response.body.to_map()
-    return [
+    # RDS returns Regions.RDSRegion with zone-level entries; dedupe by RegionId
+    return sorted({
         r["RegionId"]
-        for r in (body.get("Regions") or {}).get("Region") or []
+        for r in (body.get("Regions") or {}).get("RDSRegion") or []
         if r.get("RegionId")
-    ]
+    })
 
 
 async def _list_region(
@@ -180,7 +181,7 @@ async def _list_region(
             region_id=region, page_number=page, page_size=PAGE_SIZE
         )
         response = await fetch(
-            lambda req=request: client.describe_db_instances(req),
+            lambda req=request: client.describe_dbinstances(req),
             account=account,
             resource_type=RESOURCE_TYPE,
             api=API_NAME,

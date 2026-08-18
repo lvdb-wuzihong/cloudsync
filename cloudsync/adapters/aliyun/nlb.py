@@ -214,10 +214,10 @@ async def _list_server_group_servers(
 async def _discover_regions(account: AccountConfig, client: NlbClient) -> list[str]:
     """All account regions when accounts.yaml leaves the scope empty."""
     response = await fetch(
-        lambda: client.list_regions(nlb_models.ListRegionsRequest()),
+        lambda: client.describe_regions(nlb_models.DescribeRegionsRequest()),
         account=account,
         resource_type=RESOURCE_TYPE,
-        api="ListRegions",
+        api="DescribeRegions",
     )
     body = response.body.to_map()
     return [
