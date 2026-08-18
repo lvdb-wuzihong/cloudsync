@@ -10,7 +10,10 @@ Enrichment (N+1, cached): MachineTypes.get supplies cpu / memory_gb (the
 instance resource only carries the machine type URL), and the boot disk
 yields a best-effort os label: the attached disk's licenses carry OS-family
 project URLs (ubuntu-os-cloud / windows-cloud / ...); initialize_params.
-source_image is the fallback (often empty on live instances). Machine specs
+source_image is the fallback (often empty on live instances). GKE-managed
+nodes match neither (custom publisher project, MIG-created disks), so a
+final fallback fetches the disk resource itself (Disks.get exposes
+sourceImage + licenses, the console's authoritative source). Machine specs
 are cached per (zone, machine type) since fleets typically share a handful
 of shapes.
 
@@ -30,6 +33,7 @@ from typing import TYPE_CHECKING, Any
 
 from cloudsync.adapters.gcp.client import (
     PROVIDER,
+    build_disks_client,
     build_instances_client,
     build_machine_types_client,
     build_zones_client,
@@ -84,30 +88,45 @@ _OS_KEYWORDS = (
 )
 
 
-def _guess_os(disk: Any) -> str | None:
-    """Derive an os label (with version) from the boot disk.
+def _license_slug(license_url: str) -> str:
+    """Last path segment of a license URL, lowercased."""
+    return last_segment(license_url).lower()
 
-    The license slug is version-specific (ubuntu-2204-lts,
-    windows-server-2022-dc), so a known OS-publisher project yields the full
-    slug; otherwise fall back to a family-only keyword match on the source
-    image name. Note: AttachedDisk.source points at the disk resource itself
-    and carries no OS information.
+
+def _keyword_os(text: str) -> str | None:
+    """Family label when any known keyword appears in the text."""
+    lowered = text.lower()
+    for keyword, os_name in _OS_KEYWORDS:
+        if keyword in lowered:
+            return os_name
+    return None
+
+
+def _guess_os(
+    licenses: list[str] | None, source_image: str | None,
+) -> str | None:
+    """Derive an os label (with version when possible).
+
+    Priority: license from a known OS-publisher project (slug is
+    version-specific: ubuntu-2204-lts) > any license slug matching a family
+    keyword (covers GKE variants like ubuntu-gke-2404-...) > source image
+    basename when it matches a keyword (also version-specific). Note:
+    AttachedDisk.source points at the disk resource itself and carries no OS
+    information.
     """
-    if disk is None:
-        return None
-    for license_url in disk.licenses:
+    for license_url in licenses or []:
         parts = license_url.split("/")
+        slug = _license_slug(license_url)
         if "projects" in parts:
             project = parts[parts.index("projects") + 1]
             if project in _OS_PROJECT_MAP:
-                return last_segment(license_url).lower() or _OS_PROJECT_MAP[project]
-    params = getattr(disk, "initialize_params", None)
-    source_image = getattr(params, "source_image", "") if params is not None else ""
+                return slug or _OS_PROJECT_MAP[project]
+        if _keyword_os(slug):
+            return slug
     if source_image:
         image = last_segment(source_image).lower()
-        for keyword, os_name in _OS_KEYWORDS:
-            if keyword in image:
-                return os_name
+        if _keyword_os(image):
+            return image
     return None
 
 
@@ -231,6 +250,7 @@ async def _enrich(
 ) -> list[NormalizedResource]:
     """Machine-type specs (cached) + boot-disk OS guess per instance."""
     mt_client = build_machine_types_client(account)
+    disks_client = build_disks_client(account)
     project = project_of(account)
     specs_cache: dict[tuple[str, str], tuple[int | None, int | None]] = {}
     resources: list[NormalizedResource] = []
@@ -245,13 +265,51 @@ async def _enrich(
                 specs_cache[key] = await _machine_specs(mt_client, account, project, zone, mt_name)
             cpu, memory_gb = specs_cache[key]
         boot_disk = next((disk for disk in instance.disks if disk.boot), None)
+        os_name = _guess_os_from_attached(boot_disk)
+        if os_name is None and boot_disk is not None and boot_disk.source:
+            # GKE/MIG 实例的 AttachedDisk 两级信号常为空，回退磁盘资源本身
+            os_name = await _disk_os(
+                disks_client, account, project, zone, last_segment(boot_disk.source),
+            )
         resources.append(map_compute(
             instance, account.account_id,
             zone=zone, region=region,
             machine_type=mt_name, cpu=cpu, memory_gb=memory_gb,
-            os_name=_guess_os(boot_disk),
+            os_name=os_name,
         ))
     return resources
+
+
+def _guess_os_from_attached(disk: Any) -> str | None:
+    """OS guess from an AttachedDisk (licenses + initialize_params)."""
+    if disk is None:
+        return None
+    params = getattr(disk, "initialize_params", None)
+    source_image = getattr(params, "source_image", "") if params is not None else ""
+    return _guess_os(list(disk.licenses), source_image or None)
+
+
+async def _disk_os(
+    client: Any, account: AccountConfig, project: str, zone: str, disk_name: str,
+) -> str | None:
+    """OS guess from the disk resource (sourceImage/licenses, console 权威源)。
+
+    Best-effort: failures leave os unset, never abort the round.
+    """
+    try:
+        disk = await fetch(
+            lambda: client.get(project=project, zone=zone, disk=disk_name),
+            account=account,
+            resource_type=RESOURCE_TYPE,
+            api="DisksClient.get",
+        )
+    except Exception:
+        logger.warning("Boot disk lookup failed, os left unset",
+                       extra={"provider": PROVIDER, "account": account.account_id,
+                              "resource_type": RESOURCE_TYPE, "zone": zone,
+                              "disk": disk_name})
+        return None
+    return _guess_os(list(disk.licenses), disk.source_image or None)
 
 
 async def _machine_specs(

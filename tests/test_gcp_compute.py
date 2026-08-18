@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from cloudsync.adapters.gcp.compute import _guess_os, map_compute
+from cloudsync.adapters.gcp.compute import (
+    _guess_os,
+    _guess_os_from_attached,
+    map_compute,
+)
 
 _INSTANCE = SimpleNamespace(
     id=123456789,
@@ -92,29 +96,34 @@ def test_map_compute_no_disks_drops_size():
 
 def test_guess_os_from_boot_disk_licenses():
     # licenses 末段带版本号，识别出 OS 家族项目时直接取完整 slug
-    disk = SimpleNamespace(
-        licenses=["https://www.googleapis.com/compute/v1/projects/ubuntu-os-cloud/global/licenses/ubuntu-2204-lts"],
-        initialize_params=SimpleNamespace(source_image=""),
-    )
-    assert _guess_os(disk) == "ubuntu-2204-lts"
-    win = SimpleNamespace(
-        licenses=["https://www.googleapis.com/compute/v1/projects/windows-cloud/global/licenses/windows-server-2022-dc"],
-        initialize_params=SimpleNamespace(source_image=""),
-    )
-    assert _guess_os(win) == "windows-server-2022-dc"
+    licenses = ["https://www.googleapis.com/compute/v1/projects/ubuntu-os-cloud/global/licenses/ubuntu-2204-lts"]
+    assert _guess_os(licenses, None) == "ubuntu-2204-lts"
+    win = ["https://www.googleapis.com/compute/v1/projects/windows-cloud/global/licenses/windows-server-2022-dc"]
+    assert _guess_os(win, None) == "windows-server-2022-dc"
+
+
+def test_guess_os_gke_license_slug_keyword():
+    # GKE 发行项目不在家族映射里，但许可证 slug 含关键词 → 取整个 slug（带版本）
+    licenses = ["https://www.googleapis.com/compute/v1/projects/gke-node-images/global/licenses/ubuntu-gke-2404-1-33-amd64"]
+    assert _guess_os(licenses, None) == "ubuntu-gke-2404-1-33-amd64"
 
 
 def test_guess_os_falls_back_to_source_image():
-    # licenses 无 OS 家族时回退镜像名关键词
-    disk = SimpleNamespace(
-        licenses=["https://www.googleapis.com/compute/v1/projects/my-proj/global/licenses/custom"],
-        initialize_params=SimpleNamespace(
-            source_image="https://www.googleapis.com/compute/v1/projects/p/global/images/cos-109"),
-    )
-    assert _guess_os(disk) == "cos"
+    # licenses 无信号时回退镜像名（命中关键词时返回完整镜像名，带版本）
+    licenses = ["https://www.googleapis.com/compute/v1/projects/my-proj/global/licenses/custom"]
+    image = "https://www.googleapis.com/compute/v1/projects/p/global/images/ubuntu-gke-2404-1-33-amd64-v20260325"
+    assert _guess_os(licenses, image) == "ubuntu-gke-2404-1-33-amd64-v20260325"
 
 
 def test_guess_os_none_when_no_signal():
-    assert _guess_os(None) is None
-    disk = SimpleNamespace(licenses=[], initialize_params=SimpleNamespace(source_image=""))
-    assert _guess_os(disk) is None
+    assert _guess_os(None, None) is None
+    assert _guess_os([], "") is None
+
+
+def test_guess_os_from_attached_disk():
+    disk = SimpleNamespace(
+        licenses=["https://www.googleapis.com/compute/v1/projects/debian-cloud/global/licenses/debian-12-bookworm"],
+        initialize_params=SimpleNamespace(source_image=""),
+    )
+    assert _guess_os_from_attached(disk) == "debian-12-bookworm"
+    assert _guess_os_from_attached(None) is None
