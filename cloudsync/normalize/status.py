@@ -11,6 +11,7 @@ _DEFAULT_MAP: dict[str, str] = {
     "running": "running",
     "available": "running",
     "active": "running",
+    "normal": "running",  # aliyun Redis
     "inuse": "running",
     "in-use": "running",
     "stopped": "stopped",
@@ -44,6 +45,10 @@ _DEFAULT_MAP: dict[str, str] = {
     "net_type_changing": "maintenance",
     "guard_db_creating": "maintenance",
     "temp_db_creating": "maintenance",
+    # aliyun Redis operational states
+    "changing": "maintenance",
+    "transforming": "maintenance",
+    "flushing": "maintenance",
 }
 
 
