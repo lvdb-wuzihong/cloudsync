@@ -128,7 +128,7 @@ async def _fetch_attribute(
 ) -> dict[str, Any]:
     """DescribeDBInstanceAttribute for one instance (storage / conn / vswitch)."""
     response = await fetch(
-        lambda: client.describe_db_instance_attribute(
+        lambda: client.describe_dbinstance_attribute(
             rds_models.DescribeDBInstanceAttributeRequest(dbinstance_id=db_instance_id)
         ),
         account=account,
@@ -143,7 +143,7 @@ async def _fetch_net_info(
 ) -> tuple[str | None, int | None]:
     """DescribeDBInstanceNetInfo for one instance -> public endpoint if any."""
     response = await fetch(
-        lambda: client.describe_db_instance_net_info(
+        lambda: client.describe_dbinstance_net_info(
             rds_models.DescribeDBInstanceNetInfoRequest(dbinstance_id=db_instance_id)
         ),
         account=account,
