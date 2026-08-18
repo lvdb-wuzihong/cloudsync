@@ -104,5 +104,7 @@ def load_accounts(path: str | Path) -> AccountRegistry:
                 raise ConfigError(f"providers.{provider} entry missing account_id")
             accounts.append(AccountConfig(provider=provider, **entry))
 
-    logger.info("Cloud accounts loaded", extra={"count": len(accounts)})
+    logger.info("Cloud accounts loaded",
+                extra={"count": len(accounts),
+                       "accounts": [f"{a.provider}/{a.account_id}" for a in accounts]})
     return AccountRegistry(accounts)
