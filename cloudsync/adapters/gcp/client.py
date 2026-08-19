@@ -18,6 +18,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from google.api_core.exceptions import GoogleAPICallError
+from google.cloud import dns
 from google.cloud.compute_v1 import (
     DisksClient,
     FirewallsClient,
@@ -27,7 +28,6 @@ from google.cloud.compute_v1 import (
     SubnetworksClient,
     ZonesClient,
 )
-from google.cloud.dns_v1 import ManagedZonesClient, ResourceRecordSetsClient
 from google.oauth2 import service_account
 
 from cloudsync.core.exceptions import (
@@ -133,14 +133,9 @@ def build_machine_types_client(account: AccountConfig) -> MachineTypesClient:
     return MachineTypesClient(credentials=build_credentials(account))
 
 
-def build_dns_zones_client(account: AccountConfig) -> ManagedZonesClient:
-    """Cloud DNS managed zones client for one account."""
-    return ManagedZonesClient(credentials=build_credentials(account))
-
-
-def build_dns_rrsets_client(account: AccountConfig) -> ResourceRecordSetsClient:
-    """Cloud DNS resource record sets client for one account."""
-    return ResourceRecordSetsClient(credentials=build_credentials(account))
+def build_dns_client(account: AccountConfig) -> dns.Client:
+    """Cloud DNS client for one account (hand-written 0.x SDK; no GAPIC dns_v1)."""
+    return dns.Client(project=project_of(account), credentials=build_credentials(account))
 
 
 def last_segment(url: str) -> str:

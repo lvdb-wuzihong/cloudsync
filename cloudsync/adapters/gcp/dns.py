@@ -23,10 +23,8 @@ from typing import TYPE_CHECKING, Any
 
 from cloudsync.adapters.gcp.client import (
     PROVIDER,
-    build_dns_rrsets_client,
-    build_dns_zones_client,
+    build_dns_client,
     fetch,
-    project_of,
 )
 from cloudsync.normalize.status import normalize_status
 from cloudsync.schemas.normalized import NormalizedResource
@@ -82,11 +80,25 @@ def _normalize_value(
     return value, None
 
 
+def _zone_visibility(zone: Any) -> str:
+    """public/private; the hand-written SDK exposes no property, the raw
+    API field lives in _properties (GAPIC-style protos carry it directly)."""
+    vis = getattr(zone, "visibility", None)
+    if not vis:
+        vis = (getattr(zone, "_properties", None) or {}).get("visibility")
+    return (vis or "public").lower()
+
+
+def _rrset_type(rrset: Any) -> str:
+    """rrset type: proto objects use .type, hand-written SDK .record_type."""
+    return getattr(rrset, "type", None) or getattr(rrset, "record_type", "") or ""
+
+
 def map_dns_zone(zone: Any, account_id: str) -> NormalizedResource:
-    """Map one ManagedZone (proto message) to NormalizedResource."""
+    """Map one ManagedZone to NormalizedResource."""
     dns_name = _strip_dot(getattr(zone, "dns_name", "") or "")
     attributes = {
-        "zone_type": (getattr(zone, "visibility", "") or "public").lower(),
+        "zone_type": _zone_visibility(zone),
         "dns_servers": [
             _strip_dot(ns) for ns in (getattr(zone, "name_servers", None) or [])
         ] or None,
@@ -111,7 +123,7 @@ def map_dns_record(
 ) -> NormalizedResource:
     """Map one rrdata value of an rrset to NormalizedResource."""
     fqdn = _strip_dot(getattr(rrset, "name", "") or "")
-    record_type = getattr(rrset, "type", "") or ""
+    record_type = _rrset_type(rrset)
     attributes = {
         "rr": _relative_rr(fqdn, zone_name),
         "record_type": record_type if record_type in _RECORD_TYPE_OPTIONS else None,
@@ -146,15 +158,16 @@ def map_dns_record(
 async def list_dns_zone(account: AccountConfig) -> AsyncIterator[NormalizedResource]:
     """Fetch all managed zones of the project."""
     started = time.perf_counter()
-    client = build_dns_zones_client(account)
-    pager = await fetch(
-        lambda: client.list({"project": project_of(account)}),
+    client = build_dns_client(account)
+    # materialize inside the worker thread: the SDK iterator does lazy HTTP
+    zones = await fetch(
+        lambda: list(client.list_zones()),
         account=account,
         resource_type=ZONE_TYPE,
-        api="ManagedZonesClient.list",
+        api="dns.Client.list_zones",
     )
     count = 0
-    for zone in pager:
+    for zone in zones:
         count += 1
         yield map_dns_zone(zone, account.account_id)
     duration_ms = (time.perf_counter() - started) * 1000
@@ -167,30 +180,26 @@ async def list_dns_zone(account: AccountConfig) -> AsyncIterator[NormalizedResou
 async def list_dns_record(account: AccountConfig) -> AsyncIterator[NormalizedResource]:
     """Fetch all record sets of every managed zone (SOA skipped)."""
     started = time.perf_counter()
-    project = project_of(account)
-    zones_client = build_dns_zones_client(account)
-    rrsets_client = build_dns_rrsets_client(account)
-    zones_pager = await fetch(
-        lambda: zones_client.list({"project": project}),
+    client = build_dns_client(account)
+    zones = await fetch(
+        lambda: list(client.list_zones()),
         account=account,
         resource_type=RECORD_TYPE,
-        api="ManagedZonesClient.list",
+        api="dns.Client.list_zones",
     )
     count = 0
-    for zone in zones_pager:
+    for zone in zones:
         zone_name = _strip_dot(getattr(zone, "dns_name", "") or "")
         if not zone_name:
             continue
-        rrsets_pager = await fetch(
-            lambda zn=getattr(zone, "name", ""): rrsets_client.list(
-                {"project": project, "managed_zone": zn},
-            ),
+        rrsets = await fetch(
+            lambda z=zone: list(z.list_resource_record_sets()),
             account=account,
             resource_type=RECORD_TYPE,
-            api="ResourceRecordSetsClient.list",
+            api="ManagedZone.list_resource_record_sets",
         )
-        for rrset in rrsets_pager:
-            record_type = getattr(rrset, "type", "") or ""
+        for rrset in rrsets:
+            record_type = _rrset_type(rrset)
             if record_type in _SKIP_TYPES:
                 continue
             for rrdata in getattr(rrset, "rrdatas", None) or []:

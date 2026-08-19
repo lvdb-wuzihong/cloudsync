@@ -28,7 +28,7 @@ dependencies = [
     "alibabacloud-oss-v2>=1.3",
     # GCP Compute Engine (GCE / disks / VPC / subnets / firewalls share this package)
     "google-cloud-compute>=1.50",
-    "google-cloud-dns>=1.16",
+    "google-cloud-dns>=0.37",
     "google-auth>=2.0",
     "google-api-core>=2.0",
 ]
