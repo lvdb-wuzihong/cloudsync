@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from cloudsync.adapters.base import register_adapter
 from cloudsync.adapters.gcp.compute import list_compute
+from cloudsync.adapters.gcp.firewall import list_firewall
 from cloudsync.adapters.gcp.subnet import list_subnet
 from cloudsync.adapters.gcp.vpc import list_vpc
 
@@ -29,6 +30,7 @@ _FETCHERS: dict[str, Fetcher] = {
     "gcp_compute": list_compute,
     "gcp_vpc": list_vpc,
     "gcp_subnet": list_subnet,
+    "gcp_firewall": list_firewall,
 }
 
 
