@@ -18,7 +18,7 @@ _NETWORK = SimpleNamespace(
 def test_map_vpc_fields():
     r = map_vpc(_NETWORK, "my-gcp-project")
     assert r.resource_type == "gcp_vpc"
-    assert r.provider_id == "987654321"  # numeric id stringified
+    assert r.provider_id == "prod-net"  # name-based id (children carry names)
     assert r.name == "prod-net"
     assert r.region == ""  # VPC is global
     assert r.zone == ""

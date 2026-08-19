@@ -55,7 +55,10 @@ def map_vpc(network: Any, account_id: str) -> NormalizedResource:
     return NormalizedResource(
         provider=PROVIDER,
         resource_type=RESOURCE_TYPE,
-        provider_id=str(network.id),
+        # provider_id uses the NAME (not the numeric id): GCP children
+        # (subnetworks) only carry the network name, so edge matching must
+        # join on names
+        provider_id=network.name or "",
         cloud_account=account_id,
         name=network.name or "",
         region="",  # VPC is global
