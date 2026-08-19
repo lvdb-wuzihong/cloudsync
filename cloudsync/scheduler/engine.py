@@ -31,6 +31,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("cloudsync.scheduler.engine")
 
 TICK_INTERVAL = 1.0  # main loop resolution in seconds
+DEFAULT_CLOUD_SCHEDULE = "0 * * * *"  # hourly fallback when cron left empty
 
 
 class SyncEngine:
@@ -84,9 +85,10 @@ class SyncEngine:
                 del self._next_fire[task_id]
 
     def _compute_next_fire(self, task: SyncTask, base: datetime) -> datetime:
-        """Next cron fire time at or after base; falls back to base+1h on bad cron."""
+        """Next cron fire time at or after base; empty = hourly, bad cron = base+1h."""
+        schedule = task.schedule or DEFAULT_CLOUD_SCHEDULE
         try:
-            cron = croniter(task.schedule, base)
+            cron = croniter(schedule, base)
             return cron.get_next(datetime).astimezone(UTC)
         except (ValueError, KeyError):
             logger.error("Invalid cron expression in sync task",
