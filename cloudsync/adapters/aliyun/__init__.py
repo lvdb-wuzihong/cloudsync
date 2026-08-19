@@ -8,6 +8,7 @@ from cloudsync.adapters.aliyun.account import list_account
 from cloudsync.adapters.aliyun.amqp import list_amqp
 from cloudsync.adapters.aliyun.clb import list_clb
 from cloudsync.adapters.aliyun.disk import list_disk
+from cloudsync.adapters.aliyun.dns import list_dns_record, list_dns_zone
 from cloudsync.adapters.aliyun.ecs import list_ecs
 from cloudsync.adapters.aliyun.eip import list_eip
 from cloudsync.adapters.aliyun.nas import list_nas
@@ -49,6 +50,8 @@ _FETCHERS: dict[str, Fetcher] = {
     "aliyun_rds": list_rds,
     "aliyun_redis": list_redis,
     "aliyun_amqp": list_amqp,
+    "dns_zone": list_dns_zone,
+    "dns_record": list_dns_record,
 }
 
 

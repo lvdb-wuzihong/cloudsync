@@ -16,6 +16,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from alibabacloud_amqp_open20191212.client import Client as AmqpClient
+from alibabacloud_alidns20150109.client import Client as DnsClient
 from alibabacloud_ecs20140526.client import Client as EcsClient
 from alibabacloud_nas20170626.client import Client as NasClient
 from alibabacloud_nlb20220430.client import Client as NlbClient
@@ -105,6 +106,11 @@ def build_rds_client(account: AccountConfig, region: str) -> RdsClient:
 def build_redis_client(account: AccountConfig, region: str) -> RedisClient:
     """Redis (R-KVStore) product client for one account+region."""
     return RedisClient(build_openapi_config(account, region))
+
+
+def build_dns_client(account: AccountConfig, region: str) -> DnsClient:
+    """Alidns (public DNS) product client for one account+region."""
+    return DnsClient(build_openapi_config(account, region))
 
 
 def map_sdk_exception(exc: Exception, resource_type: str) -> AdapterError:

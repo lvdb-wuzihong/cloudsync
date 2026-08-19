@@ -27,6 +27,7 @@ from google.cloud.compute_v1 import (
     SubnetworksClient,
     ZonesClient,
 )
+from google.cloud.dns_v1 import ManagedZonesClient, ResourceRecordSetsClient
 from google.oauth2 import service_account
 
 from cloudsync.core.exceptions import (
@@ -46,11 +47,15 @@ logger = logging.getLogger("cloudsync.adapters.gcp.client")
 
 PROVIDER = "gcp"
 
-# Read-only scope covering Compute Engine resources (GCE/disks/VPC/subnets/firewalls).
+# Read-only scopes covering Compute Engine and Cloud DNS resources.
 # NOTE: the Compute API rejects cloud-platform.read-only ("insufficient
 # authentication scopes" even with a valid token and enough IAM); it only
-# accepts compute.readonly / compute / cloud-platform.
-_COMPUTE_SCOPES = ["https://www.googleapis.com/auth/compute.readonly"]
+# accepts compute.readonly / compute / cloud-platform. Cloud DNS needs its
+# own read-only scope. A multi-scope token satisfies both APIs.
+_COMPUTE_SCOPES = [
+    "https://www.googleapis.com/auth/compute.readonly",
+    "https://www.googleapis.com/auth/ndev.clouddns.readonly",
+]
 
 # HTTP status codes normalized to RATE_LIMITED (retried with backoff); 503 is
 # included because GCP signals quota exhaustion via RESOURCE_EXHAUSTED/503 too
@@ -126,6 +131,16 @@ def build_zones_client(account: AccountConfig) -> ZonesClient:
 def build_machine_types_client(account: AccountConfig) -> MachineTypesClient:
     """Compute Engine machine types client for one account (cpu/memory specs)."""
     return MachineTypesClient(credentials=build_credentials(account))
+
+
+def build_dns_zones_client(account: AccountConfig) -> ManagedZonesClient:
+    """Cloud DNS managed zones client for one account."""
+    return ManagedZonesClient(credentials=build_credentials(account))
+
+
+def build_dns_rrsets_client(account: AccountConfig) -> ResourceRecordSetsClient:
+    """Cloud DNS resource record sets client for one account."""
+    return ResourceRecordSetsClient(credentials=build_credentials(account))
 
 
 def last_segment(url: str) -> str:

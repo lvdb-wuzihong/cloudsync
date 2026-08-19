@@ -13,6 +13,7 @@ _DEFAULT_MAP: dict[str, str] = {
     "active": "running",
     "normal": "running",  # aliyun Redis
     "serving": "running",  # aliyun AMQP
+    "enable": "running",  # aliyun DNS record
     "deploying": "maintenance",  # aliyun AMQP
     "inuse": "running",
     "in-use": "running",
@@ -22,6 +23,7 @@ _DEFAULT_MAP: dict[str, str] = {
     "deactivated": "stopped",
     "released": "stopped",
     "expired": "stopped",  # aliyun AMQP
+    "disable": "stopped",  # aliyun DNS record
     # maintenance-ish states
     "migrating": "maintenance",
     "maintenance": "maintenance",
