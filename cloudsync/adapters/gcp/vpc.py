@@ -44,7 +44,8 @@ def map_vpc(network: Any, account_id: str) -> NormalizedResource:
     attributes = {
         # auto_create_subnetworks = legacy auto-subnet mode ("Auto" in console)
         "subnet_mode": "auto" if network.auto_create_subnetworks else "custom",
-        "routing_mode": (network.routing_mode or "").lower() or None,
+        # routing_mode lives inside networkRoutingConfig (not top-level)
+        "routing_mode": (network.network_routing_config.routing_mode or "").lower() or None,
         "mtu": network.mtu or None,
     }
     # Drop unset fields so the content hash stays stable across API shapes

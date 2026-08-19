@@ -10,7 +10,7 @@ _NETWORK = SimpleNamespace(
     id=987654321,
     name="prod-net",
     auto_create_subnetworks=False,
-    routing_mode="REGIONAL",
+    network_routing_config=SimpleNamespace(routing_mode="REGIONAL"),
     mtu=1460,
 )
 
@@ -35,7 +35,7 @@ def test_map_vpc_fields():
 def test_map_vpc_auto_mode_network():
     net = SimpleNamespace(
         id=1, name="default", auto_create_subnetworks=True,
-        routing_mode="GLOBAL", mtu=0,
+        network_routing_config=SimpleNamespace(routing_mode="GLOBAL"), mtu=0,
     )
     r = map_vpc(net, "proj")
     assert r.attributes["subnet_mode"] == "auto"
