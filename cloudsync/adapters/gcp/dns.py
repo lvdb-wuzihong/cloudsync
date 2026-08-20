@@ -17,6 +17,7 @@ SDK versions and must not take the round down.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import time
 from typing import TYPE_CHECKING, Any
@@ -49,6 +50,18 @@ _RECORD_TYPE_OPTIONS = {"A", "AAAA", "CNAME", "MX", "TXT", "NS", "SRV"}
 def _strip_dot(value: str) -> str:
     """GCP DNS names carry a trailing dot; CMDB stores bare FQDNs."""
     return (value or "").rstrip(".")
+
+
+def _synthesized_record_id(zone: str, fqdn: str, record_type: str, value: str) -> str:
+    """合成 provider_id；超长值（DKIM/TXT 公钥等）换 sha 摘要，防超 VARCHAR(256)。
+
+    确定性：同内容同 ID，跨轮稳定；短值保持可读原样（存量行不 churn）。
+    """
+    full = f"{zone}:{fqdn}:{record_type}:{value}"
+    if len(full) <= 256:
+        return full
+    digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
+    return f"{zone}:{fqdn}:{record_type}:sha:{digest}"
 
 
 def _relative_rr(fqdn: str, zone: str) -> str:
@@ -142,7 +155,7 @@ def map_dns_record(
     return NormalizedResource(
         provider=PROVIDER,
         resource_type=RECORD_TYPE,
-        provider_id=f"{zone_name}:{fqdn}:{record_type}:{value}",
+        provider_id=_synthesized_record_id(zone_name, fqdn, record_type, value),
         cloud_account=account_id,
         name=fqdn,
         region="",

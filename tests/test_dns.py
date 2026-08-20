@@ -11,6 +11,7 @@ from cloudsync.adapters.aliyun.dns import (
 )
 from cloudsync.adapters.gcp.dns import (
     _normalize_value,
+    _synthesized_record_id,
     map_dns_record as gcp_map_record,
     map_dns_zone as gcp_map_zone,
 )
@@ -108,6 +109,18 @@ def test_normalize_value_mx():
 def test_normalize_value_txt_and_cname():
     assert _normalize_value("TXT", '"v=spf1 -all"') == ("v=spf1 -all", None)
     assert _normalize_value("CNAME", "target.example.com.") == ("target.example.com", None)
+
+
+def test_synthesized_record_id_long_value_hashed():
+    # DKIM TXT 公钥类超长值：换 sha 摘要，防超 VARCHAR(256)
+    long_value = "v=DKIM1; k=rsa; p=" + "M" * 400
+    rid = _synthesized_record_id("example.com", "google._domainkey.example.com", "TXT", long_value)
+    assert len(rid) <= 256
+    assert ":sha:" in rid
+    # 确定性：同内容同 ID
+    assert rid == _synthesized_record_id("example.com", "google._domainkey.example.com", "TXT", long_value)
+    # 短值保持可读原样
+    assert _synthesized_record_id("z", "n", "A", "1.2.3.4") == "z:n:A:1.2.3.4"
 
 
 def test_gcp_map_record_synthesized_id():
