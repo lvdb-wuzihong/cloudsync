@@ -46,10 +46,9 @@ def map_subnet(
 ) -> NormalizedResource:
     """Map one Subnetwork (proto message) to NormalizedResource.
 
-    provider_id uses the NAME (not the numeric id): GCP children only carry
-    parent URLs/names, so edge matching must join on names — this is what
-    lets gcp_compute.subnet_id (= subnet name) and this subnet's parent key
-    (= network name) resolve. gcp_vpc uses the same convention.
+    provider_id uses "{region}/{name}"：子网名只在 VPC 内唯一，跨地域同名
+    （如各 region 的 default）会撞键互相覆盖导致反复 update；同时 GCP
+    子资源只携带父资源名称，边匹配靠这个键联 gcp_compute.subnet_id。
     """
     # secondary_ip_ranges: GKE pod/service ranges; normalized snake_case and
     # sorted for a stable content hash
@@ -74,12 +73,13 @@ def map_subnet(
     # Drop unset fields so the content hash stays stable across API shapes
     attributes = {k: v for k, v in attributes.items() if v is not None}
 
+    subnet_name = getattr(subnetwork, "name", "") or ""
     return NormalizedResource(
         provider=PROVIDER,
         resource_type=RESOURCE_TYPE,
-        provider_id=getattr(subnetwork, "name", "") or "",
+        provider_id=f"{region}/{subnet_name}" if region else subnet_name,
         cloud_account=account_id,
-        name=getattr(subnetwork, "name", "") or "",
+        name=subnet_name,
         region=region,
         zone="",
         status=normalize_status("available"),  # no lifecycle; alive = running

@@ -23,7 +23,7 @@ _SUBNET = SimpleNamespace(
 def test_map_subnet_fields():
     r = map_subnet(_SUBNET, "my-gcp-project", "asia-east2")
     assert r.resource_type == "gcp_subnet"
-    assert r.provider_id == "web-subnet"  # name-based id (edge join key)
+    assert r.provider_id == "asia-east2/web-subnet"  # region/name 键（防跨域重名撞键）
     assert r.name == "web-subnet"
     assert r.region == "asia-east2"  # from caller scope
     assert r.zone == ""

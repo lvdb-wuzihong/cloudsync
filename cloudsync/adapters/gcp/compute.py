@@ -157,7 +157,7 @@ def map_compute(
             if access_config.nat_i_p:
                 public_ip = access_config.nat_i_p
                 break
-        subnet_id = last_segment(nic.subnetwork) if nic.subnetwork else None
+        subnet_id = _subnet_key(nic.subnetwork) if nic.subnetwork else None
         vpc_id = last_segment(nic.network) if nic.network else None
 
     boot_image: str | None = None
@@ -200,6 +200,21 @@ def map_compute(
         parent_provider_id=subnet_id,
         parent_resource_type="gcp_subnet" if subnet_id else None,
     )
+
+
+def _subnet_key(subnetwork_url: str) -> str:
+    """从 subnetwork URL 解出 "{region}/{name}" 键。
+
+    必须与 gcp_subnet 的 provider_id 同构（子网名跨地域会重名，
+    单独名称建边会连错子网）；URL 不含 regions 段时退回名称。
+    """
+    parts = subnetwork_url.split("/")
+    name = last_segment(subnetwork_url)
+    if "regions" in parts:
+        region = parts[parts.index("regions") + 1]
+        if region:
+            return f"{region}/{name}"
+    return name
 
 
 async def _discover_zones(account: AccountConfig) -> dict[str, str]:
