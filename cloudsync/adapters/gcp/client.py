@@ -1,6 +1,6 @@
 """GCP SDK client factory + API error normalization + async fetch wrapper.
 
-The google-cloud SDKs are synchronous (gRPC/HTTP transport); every call goes
+The google-cloud SDKs are synchronous (REST/gRPC transport); every call goes
 through fetch() which offloads it to a worker thread and maps SDK exceptions
 onto the engine hierarchy (bingops-error-handling skill error_code
 normalization):
@@ -8,6 +8,11 @@ normalization):
 - HTTP 429 / 503       -> RateLimitError (RATE_LIMITED, retried by callers)
 - HTTP 401 / 403       -> AuthFailedError (AUTH_FAILED, never retried)
 - anything else        -> AdapterError (API_ERROR, round aborts, no deletes)
+
+All GAPIC clients are built with transport="rest" (_gapic_kwargs): the pod
+egresses through an HTTPS proxy, and the gRPC transport ignores HTTPS_PROXY
+(failing with "failed to connect to all addresses", surfaced as 503), while
+the REST transport is requests-based and honors the proxy env vars.
 """
 
 from __future__ import annotations
@@ -18,6 +23,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from google.api_core.exceptions import GoogleAPICallError
+from google.auth.exceptions import MalformedError
 from google.auth.transport.requests import AuthorizedSession
 from google.cloud import dns
 from google.cloud.compute_v1 import (
@@ -64,6 +70,8 @@ _COMPUTE_SCOPES = [
 
 # HTTP status codes normalized to RATE_LIMITED (retried with backoff); 503 is
 # included because GCP signals quota exhaustion via RESOURCE_EXHAUSTED/503 too
+# (connection-level 503s from a broken transport also land here — harmless,
+# they are retried and then abort the round)
 _THROTTLE_STATUS_CODES = {429, 503}
 
 # HTTP status codes normalized to AUTH_FAILED (never retried)
@@ -93,7 +101,7 @@ def build_credentials(account: AccountConfig) -> service_account.Credentials:
         credentials = service_account.Credentials.from_service_account_info(  # type: ignore[no-untyped-call]
             info, scopes=_COMPUTE_SCOPES
         )
-    except (KeyError, ValueError) as exc:
+    except (KeyError, ValueError, MalformedError) as exc:
         raise AuthFailedError(PROVIDER, f"service_account_json invalid: {exc}") from exc
     return credentials  # type: ignore[no-any-return]
 
@@ -103,49 +111,59 @@ def project_of(account: AccountConfig) -> str:
     return account.account_id
 
 
+def _gapic_kwargs(account: AccountConfig) -> dict[str, Any]:
+    """Constructor kwargs for GAPIC clients: credentials + REST transport.
+
+    See module docstring: REST transport is mandatory in the proxy-egress
+    deployment; the gRPC transport cannot traverse the HTTPS proxy.
+    """
+    return {"credentials": build_credentials(account), "transport": "rest"}
+
+
 def build_instances_client(account: AccountConfig) -> InstancesClient:
     """Compute Engine instances client for one account."""
-    return InstancesClient(credentials=build_credentials(account))
+    return InstancesClient(**_gapic_kwargs(account))
 
 
 def build_disks_client(account: AccountConfig) -> DisksClient:
     """Compute Engine disks client for one account."""
-    return DisksClient(credentials=build_credentials(account))
+    return DisksClient(**_gapic_kwargs(account))
 
 
 def build_networks_client(account: AccountConfig) -> NetworksClient:
     """Compute Engine networks (VPC) client for one account."""
-    return NetworksClient(credentials=build_credentials(account))
+    return NetworksClient(**_gapic_kwargs(account))
 
 
 def build_subnetworks_client(account: AccountConfig) -> SubnetworksClient:
     """Compute Engine subnetworks client for one account."""
-    return SubnetworksClient(credentials=build_credentials(account))
+    return SubnetworksClient(**_gapic_kwargs(account))
 
 
 def build_firewalls_client(account: AccountConfig) -> FirewallsClient:
     """Compute Engine firewalls client for one account."""
-    return FirewallsClient(credentials=build_credentials(account))
+    return FirewallsClient(**_gapic_kwargs(account))
 
 
 def build_zones_client(account: AccountConfig) -> ZonesClient:
     """Compute Engine zones client for one account (region scope discovery)."""
-    return ZonesClient(credentials=build_credentials(account))
+    return ZonesClient(**_gapic_kwargs(account))
 
 
 def build_machine_types_client(account: AccountConfig) -> MachineTypesClient:
     """Compute Engine machine types client for one account (cpu/memory specs)."""
-    return MachineTypesClient(credentials=build_credentials(account))
+    return MachineTypesClient(**_gapic_kwargs(account))
 
 
 def build_dns_client(account: AccountConfig) -> dns.Client:
-    """Cloud DNS client for one account (hand-written 0.x SDK; no GAPIC dns_v1)."""
+    """Cloud DNS client for one account (hand-written 0.x SDK, requests-based
+    so HTTPS_PROXY is honored; no GAPIC dns_v1 package exists)."""
     return dns.Client(project=project_of(account), credentials=build_credentials(account))
 
 
 def build_redis_client(account: AccountConfig) -> CloudRedisClient:
     """Memorystore for Redis client for one account."""
-    return CloudRedisClient(credentials=build_credentials(account))
+    return CloudRedisClient(**_gapic_kwargs(account))
 
 
 def build_sql_session(account: AccountConfig) -> AuthorizedSession:

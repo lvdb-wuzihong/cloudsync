@@ -54,7 +54,8 @@ def test_map_compute_fields():
     assert r.attributes["public_ip"] == "34.1.2.3"
     assert r.attributes["disk_size_gb"] == 120  # boot + data disks summed
     assert r.attributes["spot"] is False
-    assert r.attributes["subnet_id"] == "asia-east2/web-subnet"  # region/name 键，同 gcp_subnet provider_id
+    # region/name 键，同 gcp_subnet provider_id
+    assert r.attributes["subnet_id"] == "asia-east2/web-subnet"
     assert r.attributes["vpc_id"] == "default"
     assert r.cloud_tags == {"env": "prod"}
     # GCE belongs to subnet (belongs_to 网络归属)

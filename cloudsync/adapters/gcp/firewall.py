@@ -45,7 +45,9 @@ def _normalize_protocols(entries: Any) -> list[dict[str, Any]]:
     normalized = []
     for entry in entries or []:
         item = {
-            "ip_protocol": getattr(entry, "i_p_protocol", "") or getattr(entry, "ip_protocol", "") or None,
+            "ip_protocol": (
+                getattr(entry, "i_p_protocol", "") or getattr(entry, "ip_protocol", "") or None
+            ),
             "ports": list(getattr(entry, "ports", None) or []) or None,
         }
         normalized.append({k: v for k, v in item.items() if v is not None})
@@ -67,8 +69,12 @@ def _normalize_rule(firewall: Any) -> dict[str, Any]:
         "destination_ranges": list(getattr(firewall, "destination_ranges", None) or []) or None,
         "source_tags": list(getattr(firewall, "source_tags", None) or []) or None,
         "target_tags": list(getattr(firewall, "target_tags", None) or []) or None,
-        "source_service_accounts": list(getattr(firewall, "source_service_accounts", None) or []) or None,
-        "target_service_accounts": list(getattr(firewall, "target_service_accounts", None) or []) or None,
+        "source_service_accounts": (
+            list(getattr(firewall, "source_service_accounts", None) or []) or None
+        ),
+        "target_service_accounts": (
+            list(getattr(firewall, "target_service_accounts", None) or []) or None
+        ),
         "disabled": bool(getattr(firewall, "disabled", False)),
         "log_enabled": bool(
             getattr(getattr(firewall, "log_config", None), "enable", False)

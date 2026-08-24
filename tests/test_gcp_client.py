@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
 import pytest
 from google.api_core.exceptions import (
     BadRequest,
@@ -11,10 +13,15 @@ from google.api_core.exceptions import (
     TooManyRequests,
     Unauthorized,
 )
+from google.cloud.compute_v1.services.instances.transports import InstancesRestTransport
+from google.cloud.redis_v1.services.cloud_redis.transports import CloudRedisRestTransport
 
+import cloudsync.adapters.gcp.client as client_mod
 from cloudsync.adapters.gcp import _FETCHERS, GcpAdapter
 from cloudsync.adapters.gcp.client import (
     build_credentials,
+    build_instances_client,
+    build_redis_client,
     fetch,
     map_sdk_exception,
     project_of,
@@ -77,6 +84,14 @@ def test_project_of_returns_account_id():
     assert project_of(_account()) == "my-gcp-project"
 
 
+def test_gapic_clients_use_rest_transport(monkeypatch):
+    # gRPC transport ignores HTTPS_PROXY and fails with 503 "failed to connect
+    # to all addresses" in the proxy-egress deployment; REST is mandatory.
+    monkeypatch.setattr(client_mod, "build_credentials", lambda account: MagicMock())
+    assert isinstance(build_instances_client(_account()).transport, InstancesRestTransport)
+    assert isinstance(build_redis_client(_account()).transport, CloudRedisRestTransport)
+
+
 async def test_fetch_raises_auth_error_without_retry():
     calls = 0
 
@@ -121,6 +136,6 @@ def test_dispatch_default_set_tracks_fetchers():
 
 async def test_adapter_dispatch_unimplemented_type_raises():
     adapter = GcpAdapter()
-    agen = adapter.list_resources(_account(), "gcp_compute")
+    agen = adapter.list_resources(_account(), "gcp_lb")  # not in _FETCHERS
     with pytest.raises(NotImplementedError):
         await agen.__anext__()

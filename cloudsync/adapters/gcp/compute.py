@@ -166,7 +166,7 @@ def map_compute(
         if disk.disk_size_gb:
             disk_total += disk.disk_size_gb
         if disk.boot and disk.source:
-            boot_image = disk.source
+            boot_image = last_segment(disk.source)
 
     scheduling = instance.scheduling
     spot = bool(scheduling.preemptible) or scheduling.provisioning_model == "SPOT"
@@ -176,6 +176,7 @@ def map_compute(
         "cpu": cpu,
         "memory_gb": memory_gb,
         "os": os_name,
+        "image_id": boot_image,
         "private_ip": private_ip,
         "public_ip": public_ip,
         "disk_size_gb": disk_total or None,

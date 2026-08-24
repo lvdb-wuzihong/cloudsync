@@ -6,13 +6,21 @@ from types import SimpleNamespace
 
 from cloudsync.adapters.aliyun.dns import (
     fqdn as aliyun_fqdn,
+)
+from cloudsync.adapters.aliyun.dns import (
     map_dns_record as aliyun_map_record,
+)
+from cloudsync.adapters.aliyun.dns import (
     map_dns_zone as aliyun_map_zone,
 )
 from cloudsync.adapters.gcp.dns import (
     _normalize_value,
     _synthesized_record_id,
+)
+from cloudsync.adapters.gcp.dns import (
     map_dns_record as gcp_map_record,
+)
+from cloudsync.adapters.gcp.dns import (
     map_dns_zone as gcp_map_zone,
 )
 
@@ -118,7 +126,9 @@ def test_synthesized_record_id_long_value_hashed():
     assert len(rid) <= 256
     assert ":sha:" in rid
     # 确定性：同内容同 ID
-    assert rid == _synthesized_record_id("example.com", "google._domainkey.example.com", "TXT", long_value)
+    assert rid == _synthesized_record_id(
+        "example.com", "google._domainkey.example.com", "TXT", long_value
+    )
     # 短值保持可读原样
     assert _synthesized_record_id("z", "n", "A", "1.2.3.4") == "z:n:A:1.2.3.4"
 

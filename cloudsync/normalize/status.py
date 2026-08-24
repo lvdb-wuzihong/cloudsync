@@ -17,6 +17,7 @@ _DEFAULT_MAP: dict[str, str] = {
     "deploying": "maintenance",  # aliyun AMQP
     "inuse": "running",
     "in-use": "running",
+    "in_use": "running",  # aliyun disk
     "stopped": "stopped",
     "inactive": "stopped",
     "locked": "stopped",
@@ -58,6 +59,7 @@ _DEFAULT_MAP: dict[str, str] = {
     "staging": "maintenance",  # gcp GCE
     "repairing": "maintenance",  # gcp GCE
     "suspended": "stopped",  # gcp GCE
+    "terminated": "stopped",  # gcp GCE
     "ready": "running",  # gcp disk
     "failed": "stopped",  # gcp disk
     "runnable": "running",  # gcp Cloud SQL

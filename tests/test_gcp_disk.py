@@ -19,7 +19,9 @@ _DISK = SimpleNamespace(
     users=[
         "https://www.googleapis.com/compute/v1/projects/p/zones/asia-east2-a/instances/web-1",
     ],
-    disk_encryption_key=SimpleNamespace(kms_key_name="projects/p/locations/x/keyRings/r/cryptoKeys/k", sha256=""),
+    disk_encryption_key=SimpleNamespace(
+        kms_key_name="projects/p/locations/x/keyRings/r/cryptoKeys/k", sha256=""
+    ),
     source_image_encryption_key=None,
     source_snapshot_encryption_key=None,
 )

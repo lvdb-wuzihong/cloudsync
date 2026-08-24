@@ -15,8 +15,8 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
-from alibabacloud_amqp_open20191212.client import Client as AmqpClient
 from alibabacloud_alidns20150109.client import Client as DnsClient
+from alibabacloud_amqp_open20191212.client import Client as AmqpClient
 from alibabacloud_ecs20140526.client import Client as EcsClient
 from alibabacloud_nas20170626.client import Client as NasClient
 from alibabacloud_nlb20220430.client import Client as NlbClient
