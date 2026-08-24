@@ -18,6 +18,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from google.api_core.exceptions import GoogleAPICallError
+from google.auth.transport.requests import AuthorizedSession
 from google.cloud import dns
 from google.cloud.compute_v1 import (
     DisksClient,
@@ -28,6 +29,7 @@ from google.cloud.compute_v1 import (
     SubnetworksClient,
     ZonesClient,
 )
+from google.cloud.redis_v1 import CloudRedisClient
 from google.oauth2 import service_account
 
 from cloudsync.core.exceptions import (
@@ -51,10 +53,13 @@ PROVIDER = "gcp"
 # NOTE: the Compute API rejects cloud-platform.read-only ("insufficient
 # authentication scopes" even with a valid token and enough IAM); it only
 # accepts compute.readonly / compute / cloud-platform. Cloud DNS needs its
-# own read-only scope. A multi-scope token satisfies both APIs.
+# own read-only scope; Memorystore / Cloud SQL Admin have no dedicated
+# read-only scope and accept cloud-platform. IAM roles still enforce
+# read-only, so the broad scope is safe for a collector.
 _COMPUTE_SCOPES = [
     "https://www.googleapis.com/auth/compute.readonly",
     "https://www.googleapis.com/auth/ndev.clouddns.readonly",
+    "https://www.googleapis.com/auth/cloud-platform",
 ]
 
 # HTTP status codes normalized to RATE_LIMITED (retried with backoff); 503 is
@@ -136,6 +141,17 @@ def build_machine_types_client(account: AccountConfig) -> MachineTypesClient:
 def build_dns_client(account: AccountConfig) -> dns.Client:
     """Cloud DNS client for one account (hand-written 0.x SDK; no GAPIC dns_v1)."""
     return dns.Client(project=project_of(account), credentials=build_credentials(account))
+
+
+def build_redis_client(account: AccountConfig) -> CloudRedisClient:
+    """Memorystore for Redis client for one account."""
+    return CloudRedisClient(credentials=build_credentials(account))
+
+
+def build_sql_session(account: AccountConfig) -> AuthorizedSession:
+    """SQL Admin REST session (no GAPIC package exists; requests-based so the
+    HTTPS_PROXY env var is honored like the compute REST transport)."""
+    return AuthorizedSession(build_credentials(account))  # type: ignore[arg-type]
 
 
 def last_segment(url: str) -> str:

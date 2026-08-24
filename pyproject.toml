@@ -29,6 +29,7 @@ dependencies = [
     # GCP Compute Engine (GCE / disks / VPC / subnets / firewalls share this package)
     "google-cloud-compute>=1.50",
     "google-cloud-dns>=0.37",
+    "google-cloud-redis>=2.16",
     "google-auth>=2.0",
     "google-api-core>=2.0",
 ]

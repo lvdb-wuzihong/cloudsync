@@ -60,6 +60,9 @@ _DEFAULT_MAP: dict[str, str] = {
     "suspended": "stopped",  # gcp GCE
     "ready": "running",  # gcp disk
     "failed": "stopped",  # gcp disk
+    "runnable": "running",  # gcp Cloud SQL
+    "pending_create": "maintenance",  # gcp Cloud SQL
+    "updating": "maintenance",  # gcp Memorystore
 }
 
 
