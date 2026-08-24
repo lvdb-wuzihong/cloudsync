@@ -5,7 +5,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from cloudsync.adapters.base import register_adapter
+from cloudsync.adapters.gcp.account import list_account
 from cloudsync.adapters.gcp.compute import list_compute
+from cloudsync.adapters.gcp.disk import list_disk
 from cloudsync.adapters.gcp.dns import list_dns_record, list_dns_zone
 from cloudsync.adapters.gcp.firewall import list_firewall
 from cloudsync.adapters.gcp.subnet import list_subnet
@@ -28,7 +30,9 @@ PROVIDER = "gcp"
 
 # resource_type (model code) -> fetcher coroutine; grows per resource module
 _FETCHERS: dict[str, Fetcher] = {
+    "gcp_account": list_account,
     "gcp_compute": list_compute,
+    "gcp_disk": list_disk,
     "gcp_vpc": list_vpc,
     "gcp_subnet": list_subnet,
     "gcp_firewall": list_firewall,

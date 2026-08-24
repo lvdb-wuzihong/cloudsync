@@ -58,6 +58,8 @@ _DEFAULT_MAP: dict[str, str] = {
     "staging": "maintenance",  # gcp GCE
     "repairing": "maintenance",  # gcp GCE
     "suspended": "stopped",  # gcp GCE
+    "ready": "running",  # gcp disk
+    "failed": "stopped",  # gcp disk
 }
 
 
