@@ -70,9 +70,11 @@ _SG_RAW = {
 
 
 def test_map_security_group_without_rules():
-    r = map_security_group(_SG_RAW, "acc")
+    r = map_security_group(_SG_RAW, "acc", "cn-hangzhou")
     assert r.resource_type == "aliyun_security_group"
     assert r.provider_id == "sg-abc"
+    assert r.region == "cn-hangzhou"  # 列表条目不带 RegionId，由调用循环传入
+    assert r.status == "running"  # 无生命周期状态 → alive 常量
     assert r.attributes["sg_type"] == "normal"
     assert r.attributes["vpc_id"] == "vpc-1"
     assert r.attributes["ecs_count"] == 3
@@ -109,7 +111,7 @@ def test_rules_hash_changes_when_rules_change():
 
 def test_map_security_group_with_rules():
     rules = [{"direction": "ingress", "ip_protocol": "TCP", "port_range": "443/443"}]
-    r = map_security_group(_SG_RAW, "acc", rules)
+    r = map_security_group(_SG_RAW, "acc", "cn-hangzhou", rules)
     assert r.attributes["rules"] == rules
     assert r.attributes["rules_hash"] == compute_rules_hash(rules)
 

@@ -17,7 +17,6 @@ from alibabacloud_ecs20140526 import models as ecs_models
 
 from cloudsync.adapters.aliyun.client import PROVIDER, build_ecs_client, fetch
 from cloudsync.normalize.hashing import compute_rules_hash
-from cloudsync.normalize.status import normalize_status
 from cloudsync.normalize.tags import normalize_tags
 from cloudsync.schemas.normalized import NormalizedResource
 
@@ -92,12 +91,16 @@ async def _list_rules(
 
 
 def map_security_group(
-    raw: dict[str, Any], account_id: str, rules: list[dict[str, Any]] | None = None
+    raw: dict[str, Any], account_id: str, region: str,
+    rules: list[dict[str, Any]] | None = None,
 ) -> NormalizedResource:
     """Map one DescribeSecurityGroups item + its rules to NormalizedResource.
 
     SecurityGroup belongs to VPC; parent_provider_id points to the VpcId
     so the consumer can rebuild SecurityGroup -> VPC belongs_to edges.
+    List items carry no RegionId, so the region comes from the caller's
+    loop; security groups have no lifecycle status (the API returns none),
+    hence the constant alive marker (same convention as GCP VPC).
     """
     raw_tags = {
         t.get("TagKey", ""): t.get("TagValue", "")
@@ -126,9 +129,9 @@ def map_security_group(
         provider_id=raw.get("SecurityGroupId", ""),
         cloud_account=account_id,
         name=raw.get("SecurityGroupName") or "",
-        region=raw.get("RegionId") or "",
+        region=region,
         zone="",
-        status=normalize_status(raw.get("Status")),
+        status="running",  # 无生命周期状态的资源统一 alive 常量
         attributes=attributes,
         cloud_tags=normalize_tags(raw_tags),
         parent_provider_id=vpc_id or None,
@@ -161,7 +164,7 @@ async def _list_region(
                 if group_id
                 else None
             )
-            yield map_security_group(item, account.account_id, rules)
+            yield map_security_group(item, account.account_id, region, rules)
         collected += len(items)
         total = body.get("TotalCount") or 0
         if collected >= total or not items:
