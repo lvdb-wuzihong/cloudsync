@@ -22,7 +22,7 @@ def test_map_vpc_fields():
     assert r.name == "prod-net"
     assert r.region == ""  # VPC is global
     assert r.zone == ""
-    assert r.status == "running"  # alive = running
+    assert r.status is None  # VPC 无生命周期状态，不硬塞
     assert r.attributes["subnet_mode"] == "custom"
     assert r.attributes["routing_mode"] == "regional"
     assert r.attributes["mtu"] == 1460

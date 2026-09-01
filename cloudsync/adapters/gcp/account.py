@@ -35,7 +35,7 @@ def map_account(account: AccountConfig) -> NormalizedResource:
         name=account.display_name or account.account_id,
         region="",  # project is global
         zone="",
-        status="running",
+        status=None,  # project root has no lifecycle status; never fabricate one
         attributes={},
         cloud_tags={},
     )

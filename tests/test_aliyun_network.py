@@ -74,7 +74,7 @@ def test_map_security_group_without_rules():
     assert r.resource_type == "aliyun_security_group"
     assert r.provider_id == "sg-abc"
     assert r.region == "cn-hangzhou"  # 列表条目不带 RegionId，由调用循环传入
-    assert r.status == "running"  # 无生命周期状态 → alive 常量
+    assert r.status is None  # 无生命周期状态 → 不硬塞，落库 NULL
     assert r.attributes["sg_type"] == "normal"
     assert r.attributes["vpc_id"] == "vpc-1"
     assert r.attributes["ecs_count"] == 3

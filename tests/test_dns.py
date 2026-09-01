@@ -56,6 +56,7 @@ def test_aliyun_map_zone():
     assert r.provider_id == "example.com"
     assert r.attributes["zone_type"] == "public"
     assert r.attributes["record_count"] == 12
+    assert r.status is None  # zones have no lifecycle status
     assert r.attributes["dns_servers"] == ["dns1.hichina.com", "dns2.hichina.com"]
     assert "expire_at" not in r.attributes  # free instance: no expiry
 
@@ -103,6 +104,7 @@ def test_gcp_map_zone():
     assert r.resource_type == "dns_zone"
     assert r.provider_id == "example.com"  # trailing dot stripped
     assert r.attributes["zone_type"] == "public"
+    assert r.status is None  # zones have no lifecycle status
     assert r.attributes["dns_servers"] == [
         "ns-cloud-a1.googledomains.com", "ns-cloud-a2.googledomains.com",
     ]

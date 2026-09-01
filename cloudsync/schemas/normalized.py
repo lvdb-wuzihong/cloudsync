@@ -16,7 +16,9 @@ class NormalizedResource(BaseModel):
     - resource_type equals the CMDB model code (e.g. "aliyun_ecs");
     - attribute keys must equal model field codes; common-layer fields
       (name/provider/region/...) must NOT be duplicated into attributes;
-    - status is normalized to the running/stopped/maintenance/unknown vocabulary;
+    - status is normalized to the running/stopped/maintenance/unknown
+      vocabulary; None means the resource type has no lifecycle status
+      at all (never fabricate one) — the consumer stores NULL;
     - cloud_tags keys are lowercased with hyphens (see normalize.tags).
     """
 
@@ -27,7 +29,7 @@ class NormalizedResource(BaseModel):
     name: str = ""
     region: str = ""
     zone: str = ""
-    status: str = "unknown"
+    status: str | None = None
     attributes: dict = Field(default_factory=dict)
     cloud_tags: dict[str, str] = Field(default_factory=dict)
     # Dependency hints (e.g. ECS -> vswitch); consumer builds edges in v2,

@@ -48,7 +48,7 @@ def test_map_oss_fields():
     assert r.provider_id == "web-bucket"  # bucket name is the id
     assert r.name == "web-bucket"
     assert r.region == "cn-hangzhou"
-    assert r.status == "running"
+    assert r.status is None  # bucket 无生命周期状态，不硬塞
     assert r.attributes["acl"] == "private"
     assert r.attributes["storage_class"] == "Standard"
     assert r.attributes["redundancy_type"] == "LRS"

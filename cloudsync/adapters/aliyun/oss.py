@@ -43,7 +43,6 @@ from cloudsync.core.exceptions import (
     RateLimitError,
 )
 from cloudsync.core.retry import cloud_api_retry
-from cloudsync.normalize.status import normalize_status
 from cloudsync.schemas.normalized import NormalizedResource
 
 if TYPE_CHECKING:
@@ -206,7 +205,7 @@ def map_oss(
         name=raw.name,
         region=getattr(raw, "region", None) or _extract_region(raw.location),
         zone="",
-        status=normalize_status("available"),  # buckets have no status; alive = running
+        status=None,  # buckets have no status; never fabricate one
         attributes=attributes,
         cloud_tags={},  # OSS tagging is a separate API; out of scope for v1
         parent_provider_id=account_id,

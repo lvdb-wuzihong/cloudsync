@@ -26,7 +26,6 @@ from cloudsync.adapters.gcp.client import (
     project_of,
 )
 from cloudsync.normalize.hashing import compute_rules_hash
-from cloudsync.normalize.status import normalize_status
 from cloudsync.schemas.normalized import NormalizedResource
 
 if TYPE_CHECKING:
@@ -111,7 +110,7 @@ def map_firewall(
         name=f"fw:{vpc_name}",
         region="",  # firewalls are network-scoped (global)
         zone="",
-        status=normalize_status("available"),  # policy object; alive = running
+        status=None,  # firewalls have no lifecycle status; never fabricate one
         attributes=attributes,
         cloud_tags={},
         parent_provider_id=vpc_name,

@@ -27,7 +27,7 @@ def test_map_subnet_fields():
     assert r.name == "web-subnet"
     assert r.region == "asia-east2"  # from caller scope
     assert r.zone == ""
-    assert r.status == "running"  # alive = running
+    assert r.status is None  # subnet 无生命周期状态，不硬塞
     assert r.attributes["cidr_block"] == "10.0.0.0/24"
     assert r.attributes["private_google_access"] is True
     # sorted by range_name for stable hash

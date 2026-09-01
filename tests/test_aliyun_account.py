@@ -16,7 +16,7 @@ def test_map_account_with_display_name():
     assert r.name == "prod-main"
     assert r.attributes["alias"] == "prod-main"
     assert r.region == ""  # account is global
-    assert r.status == "running"
+    assert r.status is None  # 账号根节点无状态概念
     assert r.parent_provider_id is None  # root node has no parent
 
 

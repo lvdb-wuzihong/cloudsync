@@ -72,7 +72,7 @@ def test_map_firewall_synthesized():
     assert r.provider_id == "fw:povison-pord:prod-net"  # appendix B #19
     assert r.name == "fw:prod-net"
     assert r.region == "" and r.zone == ""  # network-scoped
-    assert r.status == "running"
+    assert r.status is None  # firewall 无生命周期状态，不硬塞
     # rules sorted deterministically (allow-ssh < deny-egress by canonical json)
     assert [x["name"] for x in r.attributes["rules"]] == ["allow-ssh", "deny-egress"]
     assert len(r.attributes["rules_hash"]) == 16

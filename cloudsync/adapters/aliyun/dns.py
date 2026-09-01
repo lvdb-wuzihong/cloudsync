@@ -76,7 +76,7 @@ def map_dns_zone(raw: dict[str, Any], account_id: str) -> NormalizedResource:
         name=domain,
         region="",  # DNS is global
         zone="",
-        status=normalize_status("available"),
+        status=None,  # zones have no lifecycle status; never fabricate one
         attributes=attributes,
         cloud_tags={},
     )

@@ -131,7 +131,7 @@ def map_security_group(
         name=raw.get("SecurityGroupName") or "",
         region=region,
         zone="",
-        status="running",  # 无生命周期状态的资源统一 alive 常量
+        status=None,  # 无生命周期状态：不硬塞，落库 NULL（不适用）
         attributes=attributes,
         cloud_tags=normalize_tags(raw_tags),
         parent_provider_id=vpc_id or None,

@@ -21,7 +21,6 @@ from cloudsync.adapters.gcp.client import (
     fetch,
     project_of,
 )
-from cloudsync.normalize.status import normalize_status
 from cloudsync.schemas.normalized import NormalizedResource
 
 if TYPE_CHECKING:
@@ -63,7 +62,7 @@ def map_vpc(network: Any, account_id: str) -> NormalizedResource:
         name=network.name or "",
         region="",  # VPC is global
         zone="",
-        status=normalize_status("available"),  # no lifecycle; alive = running
+        status=None,  # VPC has no lifecycle status; never fabricate one
         attributes=attributes,
         cloud_tags={},  # GCP VPC has no labels
         parent_provider_id=account_id,  # project id

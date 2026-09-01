@@ -27,7 +27,6 @@ from cloudsync.adapters.gcp.client import (
     build_dns_client,
     fetch,
 )
-from cloudsync.normalize.status import normalize_status
 from cloudsync.schemas.normalized import NormalizedResource
 
 if TYPE_CHECKING:
@@ -125,7 +124,7 @@ def map_dns_zone(zone: Any, account_id: str) -> NormalizedResource:
         name=dns_name,
         region="",  # DNS is global
         zone="",
-        status=normalize_status("available"),
+        status=None,  # zones have no lifecycle status; never fabricate one
         attributes=attributes,
         cloud_tags={},
     )
@@ -160,7 +159,7 @@ def map_dns_record(
         name=fqdn,
         region="",
         zone="",
-        status=normalize_status("available"),  # rrsets have no enable/disable
+        status=None,  # rrsets have no enable/disable; never fabricate one
         attributes=attributes,
         cloud_tags={},
         parent_provider_id=zone_name,

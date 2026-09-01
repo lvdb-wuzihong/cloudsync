@@ -27,7 +27,6 @@ from cloudsync.adapters.gcp.client import (
     last_segment,
     project_of,
 )
-from cloudsync.normalize.status import normalize_status
 from cloudsync.schemas.normalized import NormalizedResource
 
 if TYPE_CHECKING:
@@ -82,7 +81,7 @@ def map_subnet(
         name=subnet_name,
         region=region,
         zone="",
-        status=normalize_status("available"),  # no lifecycle; alive = running
+        status=None,  # subnets have no lifecycle status; never fabricate one
         attributes=attributes,
         cloud_tags={},  # GCP subnetwork has no labels
         parent_provider_id=vpc_name or None,

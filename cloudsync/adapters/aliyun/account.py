@@ -16,7 +16,6 @@ import logging
 from typing import TYPE_CHECKING
 
 from cloudsync.adapters.aliyun.client import PROVIDER
-from cloudsync.normalize.status import normalize_status
 from cloudsync.schemas.normalized import NormalizedResource
 
 if TYPE_CHECKING:
@@ -45,7 +44,7 @@ def map_account(account: AccountConfig) -> NormalizedResource:
         name=account.display_name or account.account_id,
         region="",  # account is global, not bound to any region
         zone="",
-        status=normalize_status("available"),  # configured = alive
+        status=None,  # 账号根节点无生命周期状态，不硬塞
         attributes=attributes,
         cloud_tags={},
     )
