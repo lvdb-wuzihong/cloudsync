@@ -16,7 +16,7 @@ from cloudsync.core.exceptions import ConfigError
 
 logger = logging.getLogger("cloudsync.core.accounts")
 
-SUPPORTED_PROVIDERS = ("aliyun", "gcp")
+SUPPORTED_PROVIDERS = ("aliyun", "gcp", "aws")
 
 type AccountKey = tuple[str, str]  # (provider, account_id)
 
@@ -39,6 +39,9 @@ class AccountConfig(BaseModel):
     access_key_secret: str = ""
     # gcp
     service_account_json: str = ""
+    # aws（secret_access_key 沿用 IAM 官方命名；session_token 仅 STS 临时凭证时填）
+    secret_access_key: str = ""
+    session_token: str = ""
 
     def __repr__(self) -> str:
         return (

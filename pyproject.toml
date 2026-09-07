@@ -32,6 +32,8 @@ dependencies = [
     "google-cloud-redis>=2.16",
     "google-auth>=2.0",
     "google-api-core>=2.0",
+    # AWS（ec2/s3/cloudfront/elb/elbv2 全部走 botocore 服务模型；方法名/分页已按 wheel 核对）
+    "boto3>=1.43",
 ]
 
 [project.optional-dependencies]

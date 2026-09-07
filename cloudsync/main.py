@@ -32,6 +32,7 @@ async def main() -> None:
 
     # Import adapter packages so they self-register into the adapter registry
     import cloudsync.adapters.aliyun  # noqa: F401
+    import cloudsync.adapters.aws  # noqa: F401
     import cloudsync.adapters.gcp  # noqa: F401
     from cloudsync.adapters.base import registered_providers
 

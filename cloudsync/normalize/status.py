@@ -65,6 +65,9 @@ _DEFAULT_MAP: dict[str, str] = {
     "runnable": "running",  # gcp Cloud SQL
     "pending_create": "maintenance",  # gcp Cloud SQL
     "updating": "maintenance",  # gcp Memorystore
+    # AWS lifecycle states
+    "shutting-down": "maintenance",  # aws EC2
+    "active_impaired": "maintenance",  # aws ALB
 }
 
 
