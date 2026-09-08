@@ -27,6 +27,17 @@ _RDS_ATTR = {
     "VSwitchId": "vsw-1",
 }
 
+# NetInfo：内网 + 公网 + 代理三形态并存（公网/代理未开时无对应条目）
+_NET_INFO_FULL = (
+    "rm-abc.mysql.rds.aliyuncs.com", 3306,
+    "rm-abc.mysql.pub.rds.aliyuncs.com",
+    "rm-abc.proxy.rds.aliyuncs.com",
+)
+
+_NET_INFO_PRIVATE_ONLY = (
+    "rm-abc.mysql.rds.aliyuncs.com", 3306, None, None,
+)
+
 
 def test_map_rds_fields():
     r = map_rds(_RDS_RAW, "acc", _RDS_ATTR)
@@ -40,7 +51,8 @@ def test_map_rds_fields():
     assert r.attributes["engine_version"] == "8.0"
     assert r.attributes["instance_class"] == "mysql.n2.medium.1"
     assert r.attributes["storage_gb"] == 100  # attribute-only field
-    assert r.attributes["connection_string"] == "rm-abc.mysql.rds.aliyuncs.com"
+    # attribute 的连接串兜底为内网地址（NetInfo 未增强时）
+    assert r.attributes["private_connection_string"] == "rm-abc.mysql.rds.aliyuncs.com"
     assert r.attributes["port"] == 3306  # string -> int
     assert r.attributes["charge_type"] == "prepaid"  # Prepaid -> enum value
     assert r.attributes["expired_at"] == "2026-12-31T16:00Z"
@@ -51,13 +63,22 @@ def test_map_rds_fields():
     assert r.parent_resource_type == "aliyun_vswitch"
 
 
-def test_map_rds_public_endpoint_overrides_private():
-    r = map_rds(
-        _RDS_RAW, "acc", _RDS_ATTR,
-        public_endpoint=("rm-abc-pub.mysql.rds.aliyuncs.com", 3307),
-    )
-    assert r.attributes["connection_string"] == "rm-abc-pub.mysql.rds.aliyuncs.com"
-    assert r.attributes["port"] == 3307
+def test_map_rds_endpoints_split():
+    """NetInfo 增强：内网/公网/代理分列，公网不再覆盖内网。"""
+    r = map_rds(_RDS_RAW, "acc", _RDS_ATTR, _NET_INFO_FULL)
+    assert r.attributes["private_connection_string"] == "rm-abc.mysql.rds.aliyuncs.com"
+    assert r.attributes["public_connection_string"] == "rm-abc.mysql.pub.rds.aliyuncs.com"
+    assert r.attributes["proxy_endpoint"] == "rm-abc.proxy.rds.aliyuncs.com"
+    assert "connection_string" not in r.attributes  # 旧单字段已废弃
+    assert r.attributes["port"] == 3306  # 内网端口语义
+
+
+def test_map_rds_private_only_no_public_proxy():
+    """未开公网/代理的实例：两个字段不落，不硬塞。"""
+    r = map_rds(_RDS_RAW, "acc", _RDS_ATTR, _NET_INFO_PRIVATE_ONLY)
+    assert r.attributes["private_connection_string"] == "rm-abc.mysql.rds.aliyuncs.com"
+    assert "public_connection_string" not in r.attributes
+    assert "proxy_endpoint" not in r.attributes
 
 
 def test_map_rds_postpaid_without_enrichment():
@@ -66,7 +87,8 @@ def test_map_rds_postpaid_without_enrichment():
     assert r.attributes["charge_type"] == "postpaid"
     assert "expired_at" not in r.attributes  # postpaid has no expiry
     assert "storage_gb" not in r.attributes
-    assert "connection_string" not in r.attributes
+    assert r.attributes["private_connection_string"] == "rm-abc.mysql.rds.aliyuncs.com"
+    assert "public_connection_string" not in r.attributes
     # vswitch falls back to the list-API field
     assert r.attributes["vswitch_id"] == "vsw-1"
     assert r.parent_provider_id == "vsw-1"

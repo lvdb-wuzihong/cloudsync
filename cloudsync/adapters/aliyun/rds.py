@@ -59,24 +59,41 @@ def _extract_attribute(attribute: dict[str, Any]) -> dict[str, Any]:
     return items[0] if items else {}
 
 
-def _extract_public_endpoint(net_info: dict[str, Any]) -> tuple[str | None, int | None]:
-    """DescribeDBInstanceNetInfo -> (public connection string, port), if any."""
+def _extract_endpoints(
+    net_info: dict[str, Any],
+) -> tuple[str | None, int | None, str | None, str | None]:
+    """DescribeDBInstanceNetInfo -> (private, public, proxy) endpoints.
+
+    IPType 枚举：Private / Public / Proxy（数据库代理连接地址，未开代理时
+    无该条目）；主接口永不返回公网/代理地址，NetInfo 是唯一权威来源。
+    """
+    private = public = proxy = None
+    private_port = None
     for item in (net_info.get("DBInstanceNetInfos") or {}).get("DBInstanceNetInfo") or []:
-        if item.get("IPType") == "Public":
-            return item.get("ConnectionString"), _safe_int(item.get("Port"))
-    return None, None
+        ip_type = item.get("IPType")
+        if ip_type == "Private":
+            private = item.get("ConnectionString")
+            private_port = _safe_int(item.get("Port"))
+        elif ip_type == "Public":
+            public = item.get("ConnectionString")
+        elif ip_type == "Proxy":
+            proxy = item.get("ConnectionString")
+    return private, private_port, public, proxy
 
 
 def map_rds(
     raw: dict[str, Any],
     account_id: str,
     attribute: dict[str, Any] | None = None,
-    public_endpoint: tuple[str | None, int | None] | None = None,
+    endpoints: tuple[str | None, int | None, str | None, str | None] | None = None,
 ) -> NormalizedResource:
     """Map one DescribeDBInstances item (+ enrichment) to NormalizedResource.
 
     RDS belongs to its VSwitch; parent_provider_id points to the VSwitchId so
     the consumer can rebuild RDS -> VSwitch belongs_to edges.
+
+    endpoints: (private, private_port, public, proxy) from NetInfo; 内外网分列
+    （公网覆盖语义已废弃——内网地址不再被公网顶掉），代理地址未开时不落。
     """
     attribute = attribute or {}
     raw_tags = {
@@ -86,20 +103,27 @@ def map_rds(
     }
     pay_type = raw.get("PayType")
     vswitch_id = attribute.get("VSwitchId") or raw.get("VSwitchId") or None
-    connection_string = attribute.get("ConnectionString") or None
-    port = _safe_int(attribute.get("Port"))
-    if public_endpoint and public_endpoint[0]:
-        # 公网地址只能来自 DescribeDBInstanceNetInfo，存在时覆盖内网地址
-        connection_string, public_port = public_endpoint
-        port = public_port or port
+
+    private_conn = attribute.get("ConnectionString") or None
+    private_port = _safe_int(attribute.get("Port"))
+    public_conn: str | None = None
+    proxy_conn: str | None = None
+    if endpoints:
+        net_private, net_private_port, public_conn, proxy_conn = endpoints
+        # NetInfo 的 Private 条目比 Attribute 更权威（含 port 拆分）
+        private_conn = net_private or private_conn
+        private_port = net_private_port or private_port
+
     attributes = {
-        # 字段 code 对齐 CMDB 模型定义
+        # 字段 code 对齐 CMDB 模型定义（内外网分列，公网覆盖语义已废弃）
         "engine": raw.get("Engine"),
         "engine_version": raw.get("EngineVersion"),
         "instance_class": raw.get("DBInstanceClass"),
         "storage_gb": _safe_int(attribute.get("DBInstanceStorage")),
-        "connection_string": connection_string,
-        "port": port,
+        "private_connection_string": private_conn,
+        "public_connection_string": public_conn,
+        "proxy_endpoint": proxy_conn,
+        "port": private_port,
         "charge_type": _CHARGE_TYPE_MAP.get(pay_type or ""),
         # 后付费无到期概念（阿里云返回 2999-12-31 占位值），仅预付费采集到期时间
         "expired_at": raw.get("ExpireTime") if pay_type == "Prepaid" else None,
@@ -140,8 +164,8 @@ async def _fetch_attribute(
 
 async def _fetch_net_info(
     account: AccountConfig, client: RdsClient, db_instance_id: str
-) -> tuple[str | None, int | None]:
-    """DescribeDBInstanceNetInfo for one instance -> public endpoint if any."""
+) -> tuple[str | None, int | None, str | None, str | None]:
+    """DescribeDBInstanceNetInfo -> (private, private_port, public, proxy)。"""
     response = await fetch(
         lambda: client.describe_dbinstance_net_info(
             rds_models.DescribeDBInstanceNetInfoRequest(dbinstance_id=db_instance_id)
@@ -150,7 +174,7 @@ async def _fetch_net_info(
         resource_type=RESOURCE_TYPE,
         api="DescribeDBInstanceNetInfo",
     )
-    return _extract_public_endpoint(response.body.to_map())
+    return _extract_endpoints(response.body.to_map())
 
 
 async def _discover_regions(account: AccountConfig, client: RdsClient) -> list[str]:
@@ -194,11 +218,11 @@ async def _list_region(
                 await _fetch_attribute(account, client, db_instance_id)
                 if db_instance_id else {}
             )
-            public_endpoint = (
+            endpoints = (
                 await _fetch_net_info(account, client, db_instance_id)
                 if db_instance_id else None
             )
-            yield map_rds(item, account.account_id, attribute, public_endpoint)
+            yield map_rds(item, account.account_id, attribute, endpoints)
         collected += len(items)
         total = body.get("TotalRecordCount") or 0
         if collected >= total or not items:
