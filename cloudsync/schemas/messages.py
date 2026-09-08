@@ -32,7 +32,9 @@ class CloudResourceMessage(BaseModel):
     name: str = ""
     region: str = ""
     zone: str = ""
-    status: str = "unknown"
+    # Mirrors NormalizedResource.status: None means the resource type has no
+    # lifecycle status at all (never fabricate "unknown") — consumer stores NULL.
+    status: str | None = None
     attributes: dict = Field(default_factory=dict)
     cloud_tags: dict[str, str] = Field(default_factory=dict)
     parent_provider_id: str | None = None
