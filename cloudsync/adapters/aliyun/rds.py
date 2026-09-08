@@ -3,13 +3,16 @@
 The list API omits storage size and network endpoints; enrichment follows
 the design doc N+1 pattern: DescribeDBInstanceAttribute supplies storage /
 private connection / vswitch, DescribeDBInstanceNetInfo is the authoritative
-source for the public address (main APIs never return it). Fetching
-discipline identical to the other aliyun modules: config-driven region
-scope, page_number pagination, raise-on-failure.
+source for the public address (main APIs never return it), and
+DescribeDBProxy splits the database-proxy endpoint into its intranet /
+internet addresses (NetType InnerString / OuterString) — it is only called
+when NetInfo carries a Proxy entry, i.e. the proxy is actually enabled.
+Fetching discipline identical to the other aliyun modules: config-driven
+region scope, page_number pagination, raise-on-failure.
 
 Field codes align with the CMDB model aliyun_rds (engine / engine_version /
-instance_class / storage_gb / connection_string / port / charge_type /
-expired_at / vswitch_id).
+instance_class / storage_gb / private/public/proxy connection strings /
+port / charge_type / expired_at / vswitch_id).
 """
 
 from __future__ import annotations
@@ -61,39 +64,40 @@ def _extract_attribute(attribute: dict[str, Any]) -> dict[str, Any]:
 
 def _extract_endpoints(
     net_info: dict[str, Any],
-) -> tuple[str | None, int | None, str | None, str | None]:
-    """DescribeDBInstanceNetInfo -> (private, public, proxy) endpoints.
+) -> tuple[dict[str, Any], bool]:
+    """DescribeDBInstanceNetInfo -> (端点 dict, 是否开通数据库代理)。
 
-    IPType 枚举：Private / Public / Proxy（数据库代理连接地址，未开代理时
-    无该条目）；主接口永不返回公网/代理地址，NetInfo 是唯一权威来源。
+    IPType 枚举：Private / Public / Proxy；Proxy 条目存在 = 实例已开通
+    数据库代理（触发 DescribeDBProxy 细化代理内/外网地址）。
     """
-    private = public = proxy = None
-    private_port = None
+    endpoints: dict[str, Any] = {}
+    has_proxy = False
     for item in (net_info.get("DBInstanceNetInfos") or {}).get("DBInstanceNetInfo") or []:
         ip_type = item.get("IPType")
         if ip_type == "Private":
-            private = item.get("ConnectionString")
-            private_port = _safe_int(item.get("Port"))
+            endpoints["private"] = item.get("ConnectionString")
+            endpoints["private_port"] = _safe_int(item.get("Port"))
         elif ip_type == "Public":
-            public = item.get("ConnectionString")
+            endpoints["public"] = item.get("ConnectionString")
         elif ip_type == "Proxy":
-            proxy = item.get("ConnectionString")
-    return private, private_port, public, proxy
+            has_proxy = True
+    return endpoints, has_proxy
 
 
 def map_rds(
     raw: dict[str, Any],
     account_id: str,
     attribute: dict[str, Any] | None = None,
-    endpoints: tuple[str | None, int | None, str | None, str | None] | None = None,
+    endpoints: dict[str, Any] | None = None,
 ) -> NormalizedResource:
     """Map one DescribeDBInstances item (+ enrichment) to NormalizedResource.
 
     RDS belongs to its VSwitch; parent_provider_id points to the VSwitchId so
     the consumer can rebuild RDS -> VSwitch belongs_to edges.
 
-    endpoints: (private, private_port, public, proxy) from NetInfo; 内外网分列
-    （公网覆盖语义已废弃——内网地址不再被公网顶掉），代理地址未开时不落。
+    endpoints keys: private / private_port / public / proxy / proxy_public。
+    内外网分列（公网覆盖语义已废弃——内网地址不再被公网顶掉），代理地址
+    内/外网分列，未开启时不落（不硬塞）。
     """
     attribute = attribute or {}
     raw_tags = {
@@ -104,15 +108,10 @@ def map_rds(
     pay_type = raw.get("PayType")
     vswitch_id = attribute.get("VSwitchId") or raw.get("VSwitchId") or None
 
-    private_conn = attribute.get("ConnectionString") or None
-    private_port = _safe_int(attribute.get("Port"))
-    public_conn: str | None = None
-    proxy_conn: str | None = None
-    if endpoints:
-        net_private, net_private_port, public_conn, proxy_conn = endpoints
-        # NetInfo 的 Private 条目比 Attribute 更权威（含 port 拆分）
-        private_conn = net_private or private_conn
-        private_port = net_private_port or private_port
+    endpoints = endpoints or {}
+    # NetInfo 的 Private 条目比 Attribute 更权威（含 port 拆分）
+    private_conn = endpoints.get("private") or attribute.get("ConnectionString") or None
+    private_port = endpoints.get("private_port") or _safe_int(attribute.get("Port"))
 
     attributes = {
         # 字段 code 对齐 CMDB 模型定义（内外网分列，公网覆盖语义已废弃）
@@ -121,8 +120,10 @@ def map_rds(
         "instance_class": raw.get("DBInstanceClass"),
         "storage_gb": _safe_int(attribute.get("DBInstanceStorage")),
         "private_connection_string": private_conn,
-        "public_connection_string": public_conn,
-        "proxy_endpoint": proxy_conn,
+        "public_connection_string": endpoints.get("public"),
+        # 代理地址内外网分列（DescribeDBProxy NetType InnerString/OuterString）
+        "proxy_endpoint": endpoints.get("proxy"),
+        "proxy_public_endpoint": endpoints.get("proxy_public"),
         "port": private_port,
         "charge_type": _CHARGE_TYPE_MAP.get(pay_type or ""),
         # 后付费无到期概念（阿里云返回 2999-12-31 占位值），仅预付费采集到期时间
@@ -164,8 +165,8 @@ async def _fetch_attribute(
 
 async def _fetch_net_info(
     account: AccountConfig, client: RdsClient, db_instance_id: str
-) -> tuple[str | None, int | None, str | None, str | None]:
-    """DescribeDBInstanceNetInfo -> (private, private_port, public, proxy)。"""
+) -> tuple[dict[str, Any], bool]:
+    """DescribeDBInstanceNetInfo -> (端点 dict, 是否开通数据库代理)。"""
     response = await fetch(
         lambda: client.describe_dbinstance_net_info(
             rds_models.DescribeDBInstanceNetInfoRequest(dbinstance_id=db_instance_id)
@@ -175,6 +176,35 @@ async def _fetch_net_info(
         api="DescribeDBInstanceNetInfo",
     )
     return _extract_endpoints(response.body.to_map())
+
+
+async def _fetch_proxy(
+    account: AccountConfig, client: RdsClient, db_instance_id: str
+) -> dict[str, Any]:
+    """DescribeDBProxy -> 代理内/外网连接地址（仅开通代理的实例调用）。
+
+    DBProxyConnectStringItems 条目按 NetType 区分：InnerString（内网）/
+    OuterString（外网）；DBProxyServiceStatus != Active 视为未开通返回空。
+    """
+    response = await fetch(
+        lambda: client.describe_dbproxy(
+            rds_models.DescribeDBProxyRequest(dbinstance_id=db_instance_id)
+        ),
+        account=account,
+        resource_type=RESOURCE_TYPE,
+        api="DescribeDBProxy",
+    )
+    body = response.body.to_map()
+    endpoints: dict[str, Any] = {}
+    if (body.get("DBProxyServiceStatus") or "") != "Active":
+        return endpoints
+    for item in body.get("DBProxyConnectStringItems") or []:
+        net = item.get("DBProxyConnectStringNetType")
+        if net == "InnerString":
+            endpoints["proxy"] = item.get("DBProxyConnectString")
+        elif net == "OuterString":
+            endpoints["proxy_public"] = item.get("DBProxyConnectString")
+    return endpoints
 
 
 async def _discover_regions(account: AccountConfig, client: RdsClient) -> list[str]:
@@ -218,10 +248,12 @@ async def _list_region(
                 await _fetch_attribute(account, client, db_instance_id)
                 if db_instance_id else {}
             )
-            endpoints = (
-                await _fetch_net_info(account, client, db_instance_id)
-                if db_instance_id else None
-            )
+            endpoints: dict[str, Any] = {}
+            if db_instance_id:
+                endpoints, has_proxy = await _fetch_net_info(account, client, db_instance_id)
+                if has_proxy:
+                    # 代理已开通：DescribeDBProxy 细化内/外网代理地址
+                    endpoints |= await _fetch_proxy(account, client, db_instance_id)
             yield map_rds(item, account.account_id, attribute, endpoints)
         collected += len(items)
         total = body.get("TotalRecordCount") or 0

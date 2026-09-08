@@ -13,6 +13,7 @@ _REDIS_RAW = {
     "EngineVersion": "7.0",
     "InstanceClass": "redis.master.small.default",
     "Capacity": 1024,
+    "Bandwidth": 32,
     "ConnectionDomain": "r-abc.redis.rds.aliyuncs.com",
     "Port": 6379,
     "VSwitchId": "vsw-1",
@@ -32,6 +33,7 @@ def test_map_redis_fields():
     assert r.attributes["engine_version"] == "7.0"
     assert r.attributes["instance_class"] == "redis.master.small.default"
     assert r.attributes["capacity_mb"] == 1024
+    assert r.attributes["bandwidth"] == 32  # 内网带宽(MB/s)，列表 API 内联
     assert r.attributes["connection_string"] == "r-abc.redis.rds.aliyuncs.com"
     assert r.attributes["port"] == 6379
     assert r.attributes["vswitch_id"] == "vsw-1"

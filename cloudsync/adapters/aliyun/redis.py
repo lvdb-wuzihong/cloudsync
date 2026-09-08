@@ -64,6 +64,9 @@ def map_redis(raw: dict[str, Any], account_id: str) -> NormalizedResource:
         "engine_version": raw.get("EngineVersion"),
         "instance_class": raw.get("InstanceClass"),
         "capacity_mb": _safe_int(raw.get("Capacity")),
+        # 内网带宽(MB/s)，列表 API 内联返回（DescribeIntranetAttribute 仅在需要
+        # 突发带宽/带宽计费状态时才必要，暂不引入）
+        "bandwidth": _safe_int(raw.get("Bandwidth")),
         "connection_string": raw.get("ConnectionDomain") or None,
         "port": _safe_int(raw.get("Port")),
         "vswitch_id": vswitch_id,

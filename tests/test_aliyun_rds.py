@@ -27,16 +27,18 @@ _RDS_ATTR = {
     "VSwitchId": "vsw-1",
 }
 
-# NetInfo：内网 + 公网 + 代理三形态并存（公网/代理未开时无对应条目）
-_NET_INFO_FULL = (
-    "rm-abc.mysql.rds.aliyuncs.com", 3306,
-    "rm-abc.mysql.pub.rds.aliyuncs.com",
-    "rm-abc.proxy.rds.aliyuncs.com",
-)
+# NetInfo 端点（_extract_endpoints 产物）：内网 + 公网；has_proxy 触发代理增强
+_ENDPOINTS_NET = {
+    "private": "rm-abc.mysql.rds.aliyuncs.com",
+    "private_port": 3306,
+    "public": "rm-abc.mysql.pub.rds.aliyuncs.com",
+}
 
-_NET_INFO_PRIVATE_ONLY = (
-    "rm-abc.mysql.rds.aliyuncs.com", 3306, None, None,
-)
+# DescribeDBProxy 产物：代理内/外网分列（NetType InnerString/OuterString）
+_ENDPOINTS_PROXY = {
+    "proxy": "rm-abc.proxy.rds.aliyuncs.com",
+    "proxy_public": "rm-abc.proxy.pub.rds.aliyuncs.com",
+}
 
 
 def test_map_rds_fields():
@@ -64,21 +66,24 @@ def test_map_rds_fields():
 
 
 def test_map_rds_endpoints_split():
-    """NetInfo 增强：内网/公网/代理分列，公网不再覆盖内网。"""
-    r = map_rds(_RDS_RAW, "acc", _RDS_ATTR, _NET_INFO_FULL)
+    """NetInfo + DescribeDBProxy 增强：内网/公网/代理内外网全分列。"""
+    r = map_rds(_RDS_RAW, "acc", _RDS_ATTR, {**_ENDPOINTS_NET, **_ENDPOINTS_PROXY})
     assert r.attributes["private_connection_string"] == "rm-abc.mysql.rds.aliyuncs.com"
     assert r.attributes["public_connection_string"] == "rm-abc.mysql.pub.rds.aliyuncs.com"
     assert r.attributes["proxy_endpoint"] == "rm-abc.proxy.rds.aliyuncs.com"
+    assert r.attributes["proxy_public_endpoint"] == "rm-abc.proxy.pub.rds.aliyuncs.com"
     assert "connection_string" not in r.attributes  # 旧单字段已废弃
-    assert r.attributes["port"] == 3306  # 内网端口语义
+    assert r.attributes["port"] == 3306  # 内网端口语义（NetInfo 权威）
 
 
 def test_map_rds_private_only_no_public_proxy():
-    """未开公网/代理的实例：两个字段不落，不硬塞。"""
-    r = map_rds(_RDS_RAW, "acc", _RDS_ATTR, _NET_INFO_PRIVATE_ONLY)
-    assert r.attributes["private_connection_string"] == "rm-abc.mysql.rds.aliyuncs.com"
-    assert "public_connection_string" not in r.attributes
-    assert "proxy_endpoint" not in r.attributes
+    """未开公网/代理的实例：三个字段不落，不硬塞。"""
+    r = map_rds(_RDS_RAW, "acc", _RDS_ATTR, dict(_ENDPOINTS_NET, public=None))
+    del_r = r.attributes
+    assert del_r["private_connection_string"] == "rm-abc.mysql.rds.aliyuncs.com"
+    assert "public_connection_string" not in del_r
+    assert "proxy_endpoint" not in del_r
+    assert "proxy_public_endpoint" not in del_r
 
 
 def test_map_rds_postpaid_without_enrichment():
