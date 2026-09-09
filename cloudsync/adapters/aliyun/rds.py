@@ -5,8 +5,10 @@ the design doc N+1 pattern: DescribeDBInstanceAttribute supplies storage /
 private connection / vswitch, DescribeDBInstanceNetInfo is the authoritative
 source for the public address (main APIs never return it), and
 DescribeDBProxy splits the database-proxy endpoint into its intranet /
-internet addresses (NetType InnerString / OuterString) — it is only called
-when NetInfo carries a Proxy entry, i.e. the proxy is actually enabled.
+internet addresses (NetType InnerString / OuterString). Neither the list
+API nor NetInfo reflects the proxy switch, so DescribeDBProxy is called
+for every instance (best-effort: failures degrade to no-proxy endpoints
+without aborting the round).
 Fetching discipline identical to the other aliyun modules: config-driven
 region scope, page_number pagination, raise-on-failure.
 
@@ -24,6 +26,7 @@ from typing import TYPE_CHECKING, Any
 from alibabacloud_rds20140815 import models as rds_models
 
 from cloudsync.adapters.aliyun.client import PROVIDER, build_rds_client, fetch
+from cloudsync.core.exceptions import AdapterError, RateLimitError
 from cloudsync.normalize.status import normalize_status
 from cloudsync.normalize.tags import normalize_tags
 from cloudsync.schemas.normalized import NormalizedResource
@@ -165,8 +168,8 @@ async def _fetch_attribute(
 
 async def _fetch_net_info(
     account: AccountConfig, client: RdsClient, db_instance_id: str
-) -> tuple[dict[str, Any], bool]:
-    """DescribeDBInstanceNetInfo -> (端点 dict, 是否开通数据库代理)。"""
+) -> dict[str, Any]:
+    """DescribeDBInstanceNetInfo -> 端点 dict（IPType Private/Public 驱动）。"""
     response = await fetch(
         lambda: client.describe_dbinstance_net_info(
             rds_models.DescribeDBInstanceNetInfoRequest(dbinstance_id=db_instance_id)
@@ -175,35 +178,103 @@ async def _fetch_net_info(
         resource_type=RESOURCE_TYPE,
         api="DescribeDBInstanceNetInfo",
     )
-    return _extract_endpoints(response.body.to_map())
+    body = response.body.to_map()
+    endpoints, _ = _extract_endpoints(body)
+    # TEMP triage log: dump IPType list to verify endpoint extraction.
+    # Remove once endpoint wiring is confirmed.
+    logger.info(
+        "RDS net info endpoints for proxy triage",
+        extra={
+            "provider": PROVIDER,
+            "account": account.account_id,
+            "resource_type": RESOURCE_TYPE,
+            "instance_id": db_instance_id,
+            "ip_types": [
+                t.get("IPType")
+                for t in (body.get("DBInstanceNetInfos") or {}).get("DBInstanceNetInfo") or []
+            ],
+            "endpoint_keys": sorted(endpoints),
+        },
+    )
+    return endpoints
 
 
 async def _fetch_proxy(
     account: AccountConfig, client: RdsClient, db_instance_id: str
 ) -> dict[str, Any]:
-    """DescribeDBProxy -> 代理内/外网连接地址（仅开通代理的实例调用）。
+    """DescribeDBProxy -> 代理内/外网连接地址（best-effort 增强字段）。
 
+    列表/NetInfo 均不体现代理开通状态，需每实例直接查询；
     DBProxyConnectStringItems 条目按 NetType 区分：InnerString（内网）/
-    OuterString（外网）；DBProxyServiceStatus != Active 视为未开通返回空。
+    OuterString（外网）；DBProxyServiceStatus 官方取值 Startup（开启）/
+    Shutdown（关闭），非 Startup 视为未启用返回空。未开通代理的实例可能
+    直接报 API 错误：增强字段降级为空 dict（记 WARNING），不拖垮整轮同步。
     """
-    response = await fetch(
-        lambda: client.describe_dbproxy(
-            rds_models.DescribeDBProxyRequest(dbinstance_id=db_instance_id)
-        ),
-        account=account,
-        resource_type=RESOURCE_TYPE,
-        api="DescribeDBProxy",
-    )
+    try:
+        response = await fetch(
+            lambda: client.describe_dbproxy(
+                rds_models.DescribeDBProxyRequest(dbinstance_id=db_instance_id)
+            ),
+            account=account,
+            resource_type=RESOURCE_TYPE,
+            api="DescribeDBProxy",
+        )
+    except RateLimitError as exc:
+        # 限流重试耗尽：跳过本实例代理增强，保住主数据（seen_ids 完整不误删）
+        logger.warning(
+            "DescribeDBProxy throttled, proxy endpoints skipped",
+            extra={
+                "provider": PROVIDER,
+                "account": account.account_id,
+                "resource_type": RESOURCE_TYPE,
+                "instance_id": db_instance_id,
+                "error_code": exc.error_code,
+                "detail": exc.message,
+            },
+        )
+        return {}
+    except AdapterError as exc:
+        # 未开通代理/引擎不支持等 API 错误：该实例视为无代理端点
+        logger.warning(
+            "DescribeDBProxy failed, proxy endpoints skipped",
+            extra={
+                "provider": PROVIDER,
+                "account": account.account_id,
+                "resource_type": RESOURCE_TYPE,
+                "instance_id": db_instance_id,
+                "error_code": exc.error_code,
+                "detail": exc.message,
+            },
+        )
+        return {}
     body = response.body.to_map()
     endpoints: dict[str, Any] = {}
-    if (body.get("DBProxyServiceStatus") or "") != "Active":
-        return endpoints
-    for item in body.get("DBProxyConnectStringItems") or []:
-        net = item.get("DBProxyConnectStringNetType")
-        if net == "InnerString":
-            endpoints["proxy"] = item.get("DBProxyConnectString")
-        elif net == "OuterString":
-            endpoints["proxy_public"] = item.get("DBProxyConnectString")
+    service_status = body.get("DBProxyServiceStatus") or ""
+    # 官方取值 Startup（开启）/ Shutdown（关闭）；仅 Startup 解析端点
+    if service_status == "Startup":
+        for item in body.get("DBProxyConnectStringItems") or []:
+            net = item.get("DBProxyConnectStringNetType")
+            if net == "InnerString":
+                endpoints["proxy"] = item.get("DBProxyConnectString")
+            elif net == "OuterString":
+                endpoints["proxy_public"] = item.get("DBProxyConnectString")
+    # TEMP triage log: dump service status and net types to verify proxy
+    # endpoint parsing. Remove once proxy endpoint wiring is confirmed.
+    logger.info(
+        "RDS proxy attribute for proxy triage",
+        extra={
+            "provider": PROVIDER,
+            "account": account.account_id,
+            "resource_type": RESOURCE_TYPE,
+            "instance_id": db_instance_id,
+            "service_status": service_status,
+            "net_types": [
+                i.get("DBProxyConnectStringNetType")
+                for i in body.get("DBProxyConnectStringItems") or []
+            ],
+            "proxy_keys": sorted(endpoints),
+        },
+    )
     return endpoints
 
 
@@ -250,10 +321,9 @@ async def _list_region(
             )
             endpoints: dict[str, Any] = {}
             if db_instance_id:
-                endpoints, has_proxy = await _fetch_net_info(account, client, db_instance_id)
-                if has_proxy:
-                    # 代理已开通：DescribeDBProxy 细化内/外网代理地址
-                    endpoints |= await _fetch_proxy(account, client, db_instance_id)
+                endpoints = await _fetch_net_info(account, client, db_instance_id)
+                # 列表/NetInfo 均不体现代理开通状态：每实例直接查询（best-effort）
+                endpoints |= await _fetch_proxy(account, client, db_instance_id)
             yield map_rds(item, account.account_id, attribute, endpoints)
         collected += len(items)
         total = body.get("TotalRecordCount") or 0

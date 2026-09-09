@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from cloudsync.adapters.aliyun.rds import map_rds
+import logging
+from types import SimpleNamespace
+
+import cloudsync.adapters.aliyun.rds as rds_mod
+from cloudsync.adapters.aliyun.rds import _fetch_proxy, map_rds
+from cloudsync.core.exceptions import AdapterError
 
 _RDS_RAW = {
     "DBInstanceId": "rm-abc",
@@ -87,13 +92,77 @@ def test_map_rds_private_only_no_public_proxy():
 
 
 def test_map_rds_postpaid_without_enrichment():
+    """无增强兜底：内网地址/端口只信 NetInfo/Attribute，不硬塞。"""
     raw = dict(_RDS_RAW, PayType="Postpaid")
     r = map_rds(raw, "acc")
     assert r.attributes["charge_type"] == "postpaid"
     assert "expired_at" not in r.attributes  # postpaid has no expiry
     assert "storage_gb" not in r.attributes
-    assert r.attributes["private_connection_string"] == "rm-abc.mysql.rds.aliyuncs.com"
+    # 内网地址/端口不再从列表 API raw 兜底
+    assert "private_connection_string" not in r.attributes
     assert "public_connection_string" not in r.attributes
+    assert "port" not in r.attributes
     # vswitch falls back to the list-API field
     assert r.attributes["vswitch_id"] == "vsw-1"
     assert r.parent_provider_id == "vsw-1"
+
+
+# ---- _fetch_proxy（best-effort 增强字段）----
+
+_PROXY_BODY = {
+    "DBProxyServiceStatus": "Startup",
+    "DBProxyConnectStringItems": [
+        {
+            "DBProxyConnectStringNetType": "InnerString",
+            "DBProxyConnectString": "p.inner.rds.aliyuncs.com",
+        },
+        {
+            "DBProxyConnectStringNetType": "OuterString",
+            "DBProxyConnectString": "p.outer.rds.aliyuncs.com",
+        },
+    ],
+}
+
+
+def _account() -> SimpleNamespace:
+    return SimpleNamespace(account_id="acc")
+
+
+async def test_fetch_proxy_parses_startup_endpoints(monkeypatch):
+    """DBProxyServiceStatus=Startup（官方开启取值）：解析内/外网代理端点。"""
+    response = SimpleNamespace(body=SimpleNamespace(to_map=lambda: _PROXY_BODY))
+
+    async def fake_fetch(call, **kwargs):
+        return response
+
+    monkeypatch.setattr(rds_mod, "fetch", fake_fetch)
+    endpoints = await _fetch_proxy(_account(), None, "rm-abc")
+    assert endpoints == {
+        "proxy": "p.inner.rds.aliyuncs.com",
+        "proxy_public": "p.outer.rds.aliyuncs.com",
+    }
+
+
+async def test_fetch_proxy_shutdown_yields_empty(monkeypatch):
+    """DBProxyServiceStatus=Shutdown：未启用代理，不落端点。"""
+    body = dict(_PROXY_BODY, DBProxyServiceStatus="Shutdown")
+    response = SimpleNamespace(body=SimpleNamespace(to_map=lambda: body))
+
+    async def fake_fetch(call, **kwargs):
+        return response
+
+    monkeypatch.setattr(rds_mod, "fetch", fake_fetch)
+    assert await _fetch_proxy(_account(), None, "rm-abc") == {}
+
+
+async def test_fetch_proxy_degrades_on_api_error(monkeypatch, caplog):
+    """未开通代理实例报 API 错误：WARNING 降级返回空，不拖垮整轮。"""
+
+    async def fake_fetch(call, **kwargs):
+        raise AdapterError("aliyun", "code=IncorrectDBInstanceEngine")
+
+    monkeypatch.setattr(rds_mod, "fetch", fake_fetch)
+    with caplog.at_level(logging.WARNING, logger="cloudsync.adapters.aliyun.rds"):
+        endpoints = await _fetch_proxy(_account(), None, "rm-abc")
+    assert endpoints == {}
+    assert any(r.levelno == logging.WARNING for r in caplog.records)
