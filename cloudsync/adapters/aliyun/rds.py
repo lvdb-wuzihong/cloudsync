@@ -250,9 +250,14 @@ async def _fetch_proxy(
     body = response.body.to_map()
     endpoints: dict[str, Any] = {}
     service_status = body.get("DBProxyServiceStatus") or ""
+    # 官方示例为双层包裹（DBProxyConnectStringItems.{同名键}[]），
+    # 兼容直接数组形态
+    items = body.get("DBProxyConnectStringItems") or []
+    if isinstance(items, dict):
+        items = items.get("DBProxyConnectStringItems") or []
     # 官方取值 Startup（开启）/ Shutdown（关闭）；仅 Startup 解析端点
     if service_status == "Startup":
-        for item in body.get("DBProxyConnectStringItems") or []:
+        for item in items:
             net = item.get("DBProxyConnectStringNetType")
             if net == "InnerString":
                 endpoints["proxy"] = item.get("DBProxyConnectString")
@@ -269,8 +274,7 @@ async def _fetch_proxy(
             "instance_id": db_instance_id,
             "service_status": service_status,
             "net_types": [
-                i.get("DBProxyConnectStringNetType")
-                for i in body.get("DBProxyConnectStringItems") or []
+                i.get("DBProxyConnectStringNetType") for i in items
             ],
             "proxy_keys": sorted(endpoints),
         },

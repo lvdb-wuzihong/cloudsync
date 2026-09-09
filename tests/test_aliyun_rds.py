@@ -109,18 +109,21 @@ def test_map_rds_postpaid_without_enrichment():
 
 # ---- _fetch_proxy（best-effort 增强字段）----
 
+_PROXY_ITEMS = [
+    {
+        "DBProxyConnectStringNetType": "InnerString",
+        "DBProxyConnectString": "p.inner.rds.aliyuncs.com",
+    },
+    {
+        "DBProxyConnectStringNetType": "OuterString",
+        "DBProxyConnectString": "p.outer.rds.aliyuncs.com",
+    },
+]
+
+# 官方文档形态：DBProxyConnectStringItems 为双层包裹对象（非直接数组）
 _PROXY_BODY = {
     "DBProxyServiceStatus": "Startup",
-    "DBProxyConnectStringItems": [
-        {
-            "DBProxyConnectStringNetType": "InnerString",
-            "DBProxyConnectString": "p.inner.rds.aliyuncs.com",
-        },
-        {
-            "DBProxyConnectStringNetType": "OuterString",
-            "DBProxyConnectString": "p.outer.rds.aliyuncs.com",
-        },
-    ],
+    "DBProxyConnectStringItems": {"DBProxyConnectStringItems": _PROXY_ITEMS},
 }
 
 
@@ -141,6 +144,19 @@ async def test_fetch_proxy_parses_startup_endpoints(monkeypatch):
         "proxy": "p.inner.rds.aliyuncs.com",
         "proxy_public": "p.outer.rds.aliyuncs.com",
     }
+
+
+async def test_fetch_proxy_accepts_flat_items(monkeypatch):
+    """兼容直接数组形态的 DBProxyConnectStringItems（防御形态变化）。"""
+    body = {"DBProxyServiceStatus": "Startup", "DBProxyConnectStringItems": _PROXY_ITEMS}
+    response = SimpleNamespace(body=SimpleNamespace(to_map=lambda: body))
+
+    async def fake_fetch(call, **kwargs):
+        return response
+
+    monkeypatch.setattr(rds_mod, "fetch", fake_fetch)
+    endpoints = await _fetch_proxy(_account(), None, "rm-abc")
+    assert endpoints["proxy"] == "p.inner.rds.aliyuncs.com"
 
 
 async def test_fetch_proxy_shutdown_yields_empty(monkeypatch):
