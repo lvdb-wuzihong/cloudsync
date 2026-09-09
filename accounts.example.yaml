@@ -21,3 +21,10 @@ providers:
       service_account_json: |
         { ... }
       regions: [asia-east2]
+  aws:
+    - account_id: "111122223333"          # AWS 12位账号 ID；must equal cmdb_sync_tasks.target_id
+      display_name: AWS 主账号
+      access_key_id: "AKIA***"            # IAM access key（建议只读策略）
+      secret_access_key: "***"            # 沿用 IAM 官方命名 access_key_id/secret_access_key
+      session_token: ""                   # 仅 STS 临时凭证时填；永久密钥留空
+      regions: [us-east-1, ap-southeast-1]  # empty = SDK default/all
