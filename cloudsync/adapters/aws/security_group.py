@@ -67,7 +67,9 @@ def _expand_permission(
     for pair in raw.get("UserIdGroupPairs") or []:
         rules.append({
             **base, group_key: pair.get("GroupId"),
-            "description": raw.get("IpRanges", [{}])[0].get("Description"),
+            # UserIdGroupPair 自带 Description（wheel 核对）；旧写法取 IpRanges[0]
+            # 在 IpRanges 为空列表（仅 Ipv6/仅 GroupPairs 的规则）时 IndexError
+            "description": pair.get("Description"),
         })
     if not rules:
         # all-protocol / all-targets permission (e.g. protocol "-1" with no ranges)
