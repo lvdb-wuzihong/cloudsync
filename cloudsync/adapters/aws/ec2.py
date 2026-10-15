@@ -75,6 +75,7 @@ def map_ec2(raw: dict[str, Any], account_id: str, region: str) -> NormalizedReso
     attributes = {k: v for k, v in attributes.items() if v is not None}
 
     vpc_id = raw.get("VpcId") or ""
+    subnet_id = raw.get("SubnetId") or ""
     return NormalizedResource(
         provider=PROVIDER,
         resource_type=RESOURCE_TYPE,
@@ -86,8 +87,10 @@ def map_ec2(raw: dict[str, Any], account_id: str, region: str) -> NormalizedReso
         status=normalize_status((raw.get("State") or {}).get("Name") or ""),
         attributes=attributes,
         cloud_tags=normalized_tags(raw.get("Tags")),
-        parent_provider_id=vpc_id or None,
-        parent_resource_type="aws_vpc" if vpc_id else None,
+        # 层级变更（subnet 批次）：EC2 的 belongs_to 父级由 aws_vpc 改为
+        # aws_subnet（vpc_id 字段保留作锚点）；存量资源由下一轮同步自动重挂
+        parent_provider_id=subnet_id or None,
+        parent_resource_type="aws_subnet" if subnet_id else None,
     )
 
 

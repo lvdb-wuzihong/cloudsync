@@ -11,8 +11,10 @@ from cloudsync.adapters.aws.cloudfront import list_cloudfront
 from cloudsync.adapters.aws.ec2 import list_ec2
 from cloudsync.adapters.aws.eip import list_eip
 from cloudsync.adapters.aws.elb import list_elb
+from cloudsync.adapters.aws.lambda_function import list_lambda_function
 from cloudsync.adapters.aws.s3 import list_s3
 from cloudsync.adapters.aws.security_group import list_security_group
+from cloudsync.adapters.aws.subnet import list_subnet
 from cloudsync.adapters.aws.vpc import list_vpc
 
 if TYPE_CHECKING:
@@ -30,9 +32,11 @@ PROVIDER = "aws"
 _FETCHERS: dict[str, Fetcher] = {
     "aws_account": list_account,
     "aws_vpc": list_vpc,
+    "aws_subnet": list_subnet,
     "aws_eip": list_eip,
     "aws_ec2": list_ec2,
     "aws_security_group": list_security_group,
+    "aws_lambda": list_lambda_function,
     "aws_s3": list_s3,
     "aws_cloudfront": list_cloudfront,
     "aws_elb": list_elb,
